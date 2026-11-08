@@ -54,4 +54,8 @@ public class ReportViewModel extends ViewModel {
     public void updateStatus(String id, String status) {
         repository.updateReportStatus(id, status);
     }
+
+    public void clearTriage() {
+        triageResultLiveData.setValue(null);
+    }
 }

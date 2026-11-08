@@ -1,15 +1,15 @@
 import java.util.Properties
 
+plugins {
+    alias(libs.plugins.android.application)
+}
+
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 val apiBaseUrl = localProperties.getProperty("API_BASE_URL", "https://api.clearflow.um.edu.my/")
-
-plugins {
-    alias(libs.plugins.android.application)
-}
 
 android {
     namespace = "com.um.clearflow"

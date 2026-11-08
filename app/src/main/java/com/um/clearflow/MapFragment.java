@@ -69,15 +69,6 @@ public class MapFragment extends Fragment {
             new GeoPoint(3.1185, 101.6560)
     };
 
-    private final ActivityResultLauncher<String> sosLocationPermLauncher =
-            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
-                if (granted) {
-                    shareRealLiveLocation();
-                } else {
-                    Toast.makeText(getContext(), "Location permission is required to share live GPS.", Toast.LENGTH_LONG).show();
-                }
-            });
-
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -148,7 +139,6 @@ public class MapFragment extends Fragment {
         Button btnCritical = view.findViewById(R.id.btn_filter_critical);
         CheckBox cbShelters = view.findViewById(R.id.cb_show_shelters);
         CheckBox cbRoute = view.findViewById(R.id.cb_evac_route);
-        Button btnSos = view.findViewById(R.id.btn_sos);
 
         btnAll.setOnClickListener(v -> viewModel.setFilter("All"));
         btnCritical.setOnClickListener(v -> viewModel.setFilter("Critical"));
@@ -161,7 +151,6 @@ public class MapFragment extends Fragment {
             viewModel.setRouteEnabled(isChecked);
         });
 
-        btnSos.setOnClickListener(v -> showSosDialog());
     }
 
     private void observeViewModel() {
@@ -375,88 +364,6 @@ public class MapFragment extends Fragment {
             }
         }
         return null;
-    }
-
-    // FR 4.3: 真实 SOS 紧急面板（分享真实 GPS 链接 / 拨打 999 / 拨打 UM 辅警）
-    private void showSosDialog() {
-        String emergencyContact = CampusRepository.getInstance()
-                .getProfileField("emergency_phone", "Not Set");
-        String[] options = {
-                "📍 Share Live GPS Link (WhatsApp / SMS / Share)",
-                "🚓 Call UM Auxiliary Police (03-7967 7070)",
-                "🚑 Call Malaysia Emergency Services (999)",
-                "📞 Call My Emergency Contact (" + emergencyContact + ")"
-        };
-
-        new AlertDialog.Builder(requireContext())
-                .setTitle("🚨 UM-ClearFlow Emergency SOS")
-                .setItems(options, (dialog, which) -> {
-                    if (which == 0) {
-                        checkPermissionAndShareGps();
-                    } else if (which == 1) {
-                        dialPhoneNumber("0379677070");
-                    } else if (which == 2) {
-                        dialPhoneNumber("999");
-                    } else if (which == 3) {
-                        if ("Not Set".equals(emergencyContact) || emergencyContact.trim().isEmpty()) {
-                            Toast.makeText(getContext(), "Please set an emergency contact in Profile tab first.", Toast.LENGTH_SHORT).show();
-                        } else {
-                            dialPhoneNumber(emergencyContact);
-                        }
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void checkPermissionAndShareGps() {
-        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED) {
-            shareRealLiveLocation();
-        } else {
-            sosLocationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION);
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private void shareRealLiveLocation() {
-        LocationManager lm = (LocationManager) requireContext().getSystemService(Context.LOCATION_SERVICE);
-        Location loc = null;
-        if (lm != null) {
-            loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-            if (loc == null) {
-                loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-            }
-        }
-
-        String studentName = CampusRepository.getInstance().getProfileField("student_name", "UM Student");
-        String college = CampusRepository.getInstance().getProfileField("college", "UM Campus");
-
-        String body;
-        if (loc != null) {
-            String mapsLink = String.format(Locale.US, "https://maps.google.com/?q=%.6f,%.6f",
-                    loc.getLatitude(), loc.getLongitude());
-            body = "[UM-ClearFlow SOS] Emergency assistance needed!\n"
-                    + "Sender: " + studentName + " (" + college + ")\n"
-                    + "Live GPS Location: " + mapsLink;
-        } else {
-            GeoPoint mapCenter = (GeoPoint) mapView.getMapCenter();
-            String fallbackLink = String.format(Locale.US, "https://maps.google.com/?q=%.5f,%.5f",
-                    mapCenter.getLatitude(), mapCenter.getLongitude());
-            body = "[UM-ClearFlow SOS] Emergency assistance needed!\n"
-                    + "Sender: " + studentName + " (" + college + ")\n"
-                    + " GPS Signal unavailable indoors; Last Map Position: " + fallbackLink;
-        }
-
-        Intent sendIntent = new Intent(Intent.ACTION_SEND);
-        sendIntent.setType("text/plain");
-        sendIntent.putExtra(Intent.EXTRA_TEXT, body);
-        startActivity(Intent.createChooser(sendIntent, "Share SOS Location via..."));
-    }
-
-    private void dialPhoneNumber(String phone) {
-        Intent dial = new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + phone));
-        startActivity(dial);
     }
 
     @Override

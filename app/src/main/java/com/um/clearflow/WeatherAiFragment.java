@@ -35,6 +35,9 @@ public class WeatherAiFragment extends Fragment {
 
         Button btnRefresh = view.findViewById(R.id.btn_refresh_weather);
         Button btnSimSquall = view.findViewById(R.id.btn_simulate_squall);
+        if (!BuildConfig.DEBUG) {
+            btnSimSquall.setVisibility(View.GONE);
+        }
         Button btnPromptShelter = view.findViewById(R.id.btn_prompt_shelter);
         Button btnPromptRoute = view.findViewById(R.id.btn_prompt_route);
         Button btnPromptSos = view.findViewById(R.id.btn_prompt_sos);

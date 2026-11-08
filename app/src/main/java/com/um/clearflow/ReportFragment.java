@@ -25,6 +25,7 @@ import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.AdapterView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -40,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.UUID;
 
 public class ReportFragment extends Fragment {
 
@@ -130,6 +132,18 @@ public class ReportFragment extends Fragment {
         };
         spinnerHazardType.setAdapter(new ArrayAdapter<>(
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, hazardTypes));
+        spinnerLocation.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            private boolean first = true;   // 跳过初始化时的自动回调
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
+                if (first) { first = false; return; }
+                realGpsLat = null;
+                realGpsLon = null;
+                tvGpsStatus.setText("Using landmark coordinates");
+            }
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
     }
 
     private void setupButtons(View view) {
@@ -233,13 +247,13 @@ public class ReportFragment extends Fragment {
             }
         }
 
-        if (latestTriage == null) {
+        if (latestTriage == null || !hazardType.equalsIgnoreCase(latestTriage.detectedType)) {
             latestTriage = CampusRepository.getInstance().runVisionTriage(
                     capturedBitmap, spinnerHazardType.getSelectedItemPosition(), title);
         }
 
-        String id = "CF-" + (System.currentTimeMillis() % 100000);
-        String timeStr = new SimpleDateFormat("Today, HH:mm", Locale.getDefault()).format(new Date());
+        String id = "CF-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+        String timeStr = new SimpleDateFormat("'Today', HH:mm", Locale.getDefault()).format(new Date());
         String myEmail = CampusRepository.getInstance()
                 .getProfileField("siswa_email", "demo.student@siswa.um.edu.my");
         String timeline = timeStr + " • Submitted by " + myEmail
@@ -261,6 +275,10 @@ public class ReportFragment extends Fragment {
         latestTriage = null;
         ivPhotoPreview.setVisibility(View.GONE);
         tvTriageResult.setText("✅ Report saved to SQLite & synced to Map! Note: Duplicates within 50m auto-merge.");
+        realGpsLat = null;
+        realGpsLon = null;
+        tvGpsStatus.setText("Using landmark coordinates");
+        viewModel.clearTriage();   // 见第 2 项
         Toast.makeText(getContext(), "Hazard report submitted!", Toast.LENGTH_SHORT).show();
     }
 

@@ -672,7 +672,10 @@ public class CampusRepository {
 
     private String escapeCsv(String val) {
         if (val == null) return "\"\"";
-        return "\"" + val.replace("\"", "\"\"").replace("\n", " ") + "\"";
+        String s = val.replace("\r", " ").replace("\n", " ");
+        // 防 Excel 公式注入：以 = + - @ 或 Tab 开头的单元格加前缀单引号
+        if (!s.isEmpty() && "=+-@\t".indexOf(s.charAt(0)) >= 0) s = "'" + s;
+        return "\"" + s.replace("\"", "\"\"") + "\"";
     }
 
     // FR 5.3: 触发系统状态栏本地通知

@@ -37,6 +37,7 @@ public class ProfileFragment extends Fragment {
 
     private TextView tvRoleStatus;
     private Button btnToggleAdmin;
+    private Button btnExportCsv;
     private LinearLayout layoutAdminBroadcast;
     private EditText etBroadcastMsg;
     private TextView tvHotspotRanking;
@@ -130,7 +131,7 @@ public class ProfileFragment extends Fragment {
         Button btnSaveProfile = view.findViewById(R.id.btn_save_profile);
         Button btnPublishBroadcast = view.findViewById(R.id.btn_publish_broadcast);
         Button btnClearBroadcast = view.findViewById(R.id.btn_clear_broadcast);
-        Button btnExportCsv = view.findViewById(R.id.btn_export_csv);
+        btnExportCsv = view.findViewById(R.id.btn_export_csv);
 
         // FR 1.1 & 1.2: 校验 @siswa.um.edu.my 域名并持久化个人档案
         btnSaveProfile.setOnClickListener(v -> {
@@ -190,6 +191,10 @@ public class ProfileFragment extends Fragment {
 
         // FR 5.2: 导出并分享真实 CSV 报告
         btnExportCsv.setOnClickListener(v -> {
+            if (!CampusRepository.getInstance().isAdmin()) {
+                Toast.makeText(getContext(), "Admin role required.", Toast.LENGTH_SHORT).show();
+                return;
+            }
             String csvData = viewModel.exportCsvContent();
             Intent sendIntent = new Intent(Intent.ACTION_SEND);
             sendIntent.setType("text/csv");
@@ -228,6 +233,9 @@ public class ProfileFragment extends Fragment {
                     ? "🔓 Logout Admin (Return to Student View)"
                     : "🔐 Authenticate JPPHB Admin (PIN: UM2026)");
             layoutAdminBroadcast.setVisibility(isAdmin ? View.VISIBLE : View.GONE);
+            if (btnExportCsv != null) {
+                btnExportCsv.setVisibility(isAdmin ? View.VISIBLE : View.GONE);
+            }
         });
 
         viewModel.getReports().observe(getViewLifecycleOwner(), reports -> {

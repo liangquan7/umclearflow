@@ -1,9 +1,19 @@
 package com.um.clearflow;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.widget.Toast;
+
+import java.util.Locale;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -27,14 +37,105 @@ public class MainActivity extends AppCompatActivity {
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 // Notification permission callback
             });
+    private final ActivityResultLauncher<String[]> locationPermLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                boolean ok = Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_FINE_LOCATION))
+                        || Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_COARSE_LOCATION));
+                if (ok) {
+                    shareLiveLocation();
+                } else {
+                    Toast.makeText(this, "Location permission is required to share GPS.", Toast.LENGTH_LONG).show();
+                }
+            });
+
+    public void showSosDialog() {
+        CampusRepository repo = CampusRepository.getInstance();
+        String emergencyPhone = repo.getProfileField("emergency_phone", "").trim();
+        String[] options = {
+                "📍 Share Live GPS Link (WhatsApp / SMS / Share)",
+                "🚓 Call UM Auxiliary Police (03-7967 7070)",
+                "🚑 Call Malaysia Emergency Services (999)",
+                "📞 Call My Emergency Contact" + (emergencyPhone.isEmpty() ? " (not set)" : " (" + emergencyPhone + ")")
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("🚨 UM-ClearFlow Emergency SOS")
+                .setItems(options, (d, which) -> {
+                    if (which == 0) shareLiveLocationWithPermission();
+                    else if (which == 1) dial("0379677070");
+                    else if (which == 2) dial("999");
+                    else if (emergencyPhone.isEmpty()) {
+                        Toast.makeText(this, "Set an emergency contact in the Profile tab first.", Toast.LENGTH_SHORT).show();
+                    } else dial(emergencyPhone);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void shareLiveLocationWithPermission() {
+        boolean fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+        if (fine || coarse) {
+            shareLiveLocation();
+        } else {
+            locationPermLauncher.launch(new String[]{
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION});
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private Location bestLastKnownLocation() {
+        LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (lm == null) return null;
+        Location best = null;
+        for (String p : new String[]{LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER}) {
+            try {
+                Location l = lm.getLastKnownLocation(p);
+                if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+            } catch (SecurityException | IllegalArgumentException ignored) {}
+        }
+        return best;
+    }
+
+    private void shareLiveLocation() {
+        CampusRepository repo = CampusRepository.getInstance();
+        String name = repo.getProfileField("student_name", "UM Student");
+        String college = repo.getProfileField("college", "UM Campus");
+        Location loc = bestLastKnownLocation();
+
+        StringBuilder body = new StringBuilder("[UM-ClearFlow SOS] Emergency assistance needed!\n")
+                .append("Sender: ").append(name).append(" (").append(college).append(")\n");
+        if (loc != null) {
+            long ageMin = Math.max(0, (System.currentTimeMillis() - loc.getTime()) / 60000);
+            body.append(String.format(Locale.US, "Location: https://maps.google.com/?q=%.6f,%.6f\n",
+                    loc.getLatitude(), loc.getLongitude()));
+            body.append(String.format(Locale.US, "(accuracy ±%.0f m, fix taken %d min ago)",
+                    loc.getAccuracy(), ageMin));
+        } else {
+            body.append("GPS location unavailable. Please call me.");
+        }
+
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, body.toString());
+        startActivity(Intent.createChooser(send, "Share SOS Location via..."));
+    }
+
+    private void dial(String phone) {
+        startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone))));
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        CampusRepository.init(getApplicationContext());
         super.onCreate(savedInstanceState);
         // 初始化 SQLite 与全局上下文
-        CampusRepository.init(getApplicationContext());
-        setContentView(R.layout.activity_main);
 
+        setContentView(R.layout.activity_main);
+        findViewById(R.id.btnTopSos).setOnClickListener(v -> showSosDialog());
         requestNotificationPermissionIfNeeded();
 
         FragmentManager fm = getSupportFragmentManager();
@@ -57,6 +158,13 @@ public class MainActivity extends AppCompatActivity {
             weatherAiFragment = fm.findFragmentByTag("WEATHER");
             profileFragment = fm.findFragmentByTag("PROFILE");
             activeFragment = mapFragment;
+            Fragment[] all = {mapFragment, reportFragment, weatherAiFragment, profileFragment};
+            for (Fragment f : all) {
+                if (f != null && !f.isHidden()) {
+                    activeFragment = f;
+                    break;
+                }
+            }
         }
 
         BottomNavigationView bottomNav = findViewById(R.id.bottom_navigation);

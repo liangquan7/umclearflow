@@ -23,6 +23,16 @@ public class WeatherAiViewModel extends ViewModel {
     private final CampusRepository repository = CampusRepository.getInstance();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
+    private long lastWeatherAlertAt = 0L;
+    private static final long ALERT_COOLDOWN_MS = 30 * 60 * 1000L;
+
+    private boolean shouldSendWeatherAlert() {
+        long now = System.currentTimeMillis();
+        if (now - lastWeatherAlertAt < ALERT_COOLDOWN_MS) return false;
+        lastWeatherAlertAt = now;
+        return true;
+    }
+
     private final MutableLiveData<String> weatherSummaryLiveData = new MutableLiveData<>(
             "Fetching live Open-Meteo 6-hour forecast for Universiti Malaya (3.1245, 101.6525)...");
     private final MutableLiveData<String> riskMatrixLiveData = new MutableLiveData<>(
@@ -60,8 +70,8 @@ public class WeatherAiViewModel extends ViewModel {
 
                 computeZoneRiskFusion(simCurrent, simNext3h, 95);
                 repository.sendLocalAlertNotification(
-                        "🚨 Extreme Weather Warning (FR 5.3)",
-                        "Forecast 3h rain: 38.0mm! High flash-flood risk at Pantai Gate & Lingkungan Budi. Avoid low-lying roads."
+                        "[DEMO] Extreme Weather Warning (FR 5.3)",
+                        "Simulated: forecast 3h rain 38.0mm. This is a demo alert, not a real warning."
                 );
                 return;
             }
@@ -121,7 +131,7 @@ public class WeatherAiViewModel extends ViewModel {
 
                 computeZoneRiskFusion(currentRain, next3hRain, maxProb);
 
-                if (currentRain >= 5.0 || next3hRain >= 15.0) {
+                if ((currentRain >= 5.0 || next3hRain >= 15.0) && shouldSendWeatherAlert()) {
                     repository.sendLocalAlertNotification(
                             "🌧️ UM Flood Forecast Alert (FR 3.2/5.3)",
                             String.format(Locale.US, "Next 3h forecast: %.1f mm (%d%% prob). Check safe detour routes.", next3hRain, maxProb)
