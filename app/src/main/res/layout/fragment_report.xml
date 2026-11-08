@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F4F7FA"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- 顶部：AI 拍照上报卡片 (Module 2 FR2.1 & Module 3 FR3.1) -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardBackgroundColor="#FFFFFF"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="4dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📸 Report UM Campus Hazard &amp; AI Triage"
+                    android:textColor="#002B5B"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Snap a photo of flooded roads, fallen trees, or blocked drains. AI will auto-classify severity for JPPHB."
+                    android:textColor="#666666"
+                    android:textSize="12sp" />
+
+                <!-- 预览框与拍照按钮 -->
+                <ImageView
+                    android:id="@+id/ivHazardPreview"
+                    android:layout_width="match_parent"
+                    android:layout_height="150dp"
+                    android:layout_marginTop="10dp"
+                    android:background="#E3F2FD"
+                    android:scaleType="centerInside"
+                    android:src="@android:drawable/ic_menu_camera" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnCapturePhoto"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:layout_weight="1"
+                        android:backgroundTint="#1976D2"
+                        android:text="📷 Camera / Demo Photo"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btnRunAiTriage"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:backgroundTint="#7B1FA2"
+                        android:text="🤖 Run AI Vision Scan"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- AI 诊断结果显示框 (含 NFR 响应时间毫秒数展示) -->
+                <TextView
+                    android:id="@+id/tvAiDiagnosisBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="#F3E5F5"
+                    android:padding="10dp"
+                    android:text="🤖 AI Vision Status: Waiting for photo scan..."
+                    android:textColor="#4A148C"
+                    android:textSize="12sp" />
+
+                <!-- 表单输入项 -->
+                <EditText
+                    android:id="@+id/etHazardTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="Issue Title (e.g., Blocked Drain near FCSIT)"
+                    android:textSize="14sp" />
+
+                <Spinner
+                    android:id="@+id/spCampusLocation"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="6dp" />
+
+                <Spinner
+                    android:id="@+id/spHazardType"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="6dp" />
+
+                <CheckBox
+                    android:id="@+id/cbSimulateOffline"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚡ Simulate Bad Weather Offline Mode (Save to Local Queue - NFR2)"
+                    android:textColor="#D32F2F"
+                    android:textSize="12sp" />
+
+                <Button
+                    android:id="@+id/btnSubmitReport"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="6dp"
+                    android:backgroundTint="#002B5B"
+                    android:text="🚀 Submit Report to JPPHB &amp; Campus Map"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- 底部：实时社区众包验证与 JPPHB 进度看板 (FR2.2 & FR2.3) -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="6dp"
+            android:text="📋 Live UM Community Reports (Tap to Upvote or Update JPPHB Status)"
+            android:textColor="#002B5B"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/llReportsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+    </LinearLayout>
+</ScrollView>

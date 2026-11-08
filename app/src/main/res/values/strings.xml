@@ -1,0 +1,88 @@
+<resources>
+    <string name="app_name">UM-ClearFlow</string>
+    <string name="header_title">UM-ClearFlow Sentinel</string>
+    <string name="header_subtitle">SDG 13.1 • Universiti Malaya Hazard &amp; Flood Guard</string>
+    <string name="btn_sos_text">SOS UM</string>
+
+    <!-- SOS Dialog -->
+    <string name="sos_dialog_title">🚨 UM Emergency &amp; Hazard SOS</string>
+    <string name="sos_um_security">📞 Call UM Security (Pejabat Keselamatan: 03-7967 7070)</string>
+    <string name="sos_jpphb_maintenance">🛠️ Call JPPHB Maintenance Hotline (03-7967 3286)</string>
+    <string name="sos_ummc_emergency">🏥 Call UMMC Emergency (03-7949 4422)</string>
+    <string name="sos_share_gps">📍 Share My Live GPS Location to Campus Security</string>
+    <string name="gps_alert_sent_title">GPS Alert Sent</string>
+    <string name="gps_alert_sent_msg">Your current campus coordinates (%1$s) and Siswa ID (%2$s) have been dispatched to UM Auxiliary Police.</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_ok">OK</string>
+    <string name="btn_close">Close</string>
+
+    <!-- Bottom Nav -->
+    <string name="nav_map">Map</string>
+    <string name="nav_reports">Report &amp; AI</string>
+    <string name="nav_weather_ai">Weather &amp; AI</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- Map Screen -->
+    <string name="map_status_title">📍 Universiti Malaya Live Hazard Map (Tap marker for details)</string>
+    <string name="filter_all">All Hazards</string>
+    <string name="filter_flood">🌊 Floods</string>
+    <string name="filter_tree">🌳 Fallen Trees</string>
+    <string name="filter_drain">🕳️ Blocked Drains</string>
+    <string name="route_info_default">🛡️ Safe Campus Commute: Ready to calculate flood-free route.</string>
+    <string name="route_info_active">✅ Suggested Campus Detour (Demo Route): FCSIT ➔ High Ground via Perdanasiswa ➔ KK8 (Avoids flooded Jalan Ilmu &amp; fallen tree). Est. walk: 9 mins.</string>
+    <string name="btn_safe_route_plan">🧭 Plan Safe Route (FCSIT ➔ KK8)</string>
+    <string name="btn_safe_route_clear">❌ Clear Route Overlay</string>
+    <string name="btn_recenter_um">🎯 UM</string>
+
+    <!-- Hazard Detail Popup -->
+    <string name="hazard_detail_location">📍 Location: %1$s</string>
+    <string name="hazard_detail_type">⚠️ Type: %1$s (%2$s)</string>
+    <string name="hazard_detail_ai">🤖 Assessment: %1$s</string>
+    <string name="hazard_detail_status">🛠️ JPPHB Status: %1$s</string>
+    <string name="hazard_detail_upvotes">👍 Community Verified: %1$d UM students/staff</string>
+    <string name="hazard_confirm_active">👍 Confirm Still Active (+1)</string>
+
+    <!-- Report Screen -->
+    <string name="report_card_title">📸 Report UM Campus Hazard &amp; Risk Triage</string>
+    <string name="report_card_subtitle">Snap a photo of flooded roads, fallen trees, or blocked drains. Automated triage will tag severity for JPPHB.</string>
+    <string name="btn_camera_sample">📷 Camera / Demo Photo</string>
+    <string name="btn_run_ai_triage">🤖 Run Risk Triage</string>
+    <string name="tv_ai_diagnosis_initial">🤖 Risk Triage Status: Waiting for scan...</string>
+    <string name="et_hazard_title_hint">Issue Title (e.g., Blocked Drain near FCSIT)</string>
+    <string name="cb_simulate_offline">⚡ Simulate Offline Queue (Save to Local Queue)</string>
+    <string name="btn_submit_report">🚀 Submit Report to JPPHB &amp; Campus Map</string>
+    <string name="live_reports_title">📋 Live UM Community Reports (Tap to Upvote or Update JPPHB Status)</string>
+    <string name="toast_sample_image_loaded">Loaded UM Sample Hazard Image</string>
+    <string name="toast_saved_offline">📦 Saved to local queue. Will sync when backend connection is active.</string>
+    <string name="toast_published">✅ Hazard published to UM Live Map &amp; JPPHB Dashboard!</string>
+    <string name="status_update_dialog_title">Update Ticket Status (%1$s)</string>
+    <string name="status_pending">Pending JPPHB Action</string>
+    <string name="status_in_progress">In Progress (JPPHB Dispatched)</string>
+    <string name="status_resolved">Resolved &amp; Cleared</string>
+    <string name="status_sync_offline">☁️ Sync Offline Report to Cloud Queue</string>
+
+    <!-- Weather & AI Screen -->
+    <string name="weather_card_title">☁️ UM Live Climate &amp; Flood Risk Sentinel</string>
+    <string name="weather_status_fetching">Fetching live Open-Meteo weather data for Universiti Malaya (Latitude: 3.1209)...</string>
+    <string name="btn_refresh_weather">🔄 Refresh Weather API</string>
+    <string name="ai_assistant_card_title">🤖 UM Emergency Assistant</string>
+    <string name="ai_assistant_subtitle">Ask questions about campus flood safety, blocked drains, or JPPHB emergency contacts.</string>
+    <string name="ai_chat_initial">Hello! I am your UM Climate &amp; Drainage AI Assistant. Tap a prompt below for guidance.</string>
+    <string name="btn_prompt_flood">⚡ Flood Safety</string>
+    <string name="btn_prompt_tree">🌳 Fallen Tree</string>
+    <string name="analytics_card_title">📊 Campus Climate Resilience Analytics</string>
+    <string name="analytics_summary_text">• High-Risk Area: Jalan Lingkungan Budi (KL Gate)\n• Active Incidents: Monitored in real-time\n• Target Resolution: Subject to JPPHB dispatch\n• SDG 13.1 Target Alignment: Active &amp; Monitored</string>
+
+    <!-- Profile Screen -->
+    <string name="profile_card_title">👤 UM Siswa Profile &amp; Role Settings</string>
+    <string name="btn_toggle_role">🔄 Switch Role: Student ⇄ JPPHB Maintenance Admin</string>
+    <string name="toast_switched_admin">Switched to Admin View: JPPHB Maintenance Admin</string>
+    <string name="toast_switched_student">Switched to Student View</string>
+    <string name="privacy_card_title">🔒 Data &amp; System Info</string>
+    <string name="privacy_info_text">• Campus: Universiti Malaya (Kuala Lumpur)\n• Backend API Base URL: %1$s\n• Offline Queue: Supported via SQLite/Local Repository\n• All demo data clearly marked [Demo Data]</string>
+
+    <!-- Categories -->
+    <string name="category_blocked_drain">Blocked Drain</string>
+    <string name="category_flash_flood">Flash Flood</string>
+    <string name="category_fallen_tree">Fallen Tree</string>
+</resources>
