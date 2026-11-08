@@ -1,63 +1,237 @@
 package com.um.clearflow;
 
+import android.app.AlertDialog;
+import android.content.Intent;
 import android.os.Bundle;
+import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import java.util.Locale;
+
 public class ProfileFragment extends Fragment {
 
-    private TextView tvUserProfileInfo;
     private ProfileViewModel viewModel;
+    private TextView tvAuthStatus;
+    private EditText etEmail;
+    private EditText etName;
+    private EditText etMatric;
+    private Spinner spinnerFaculty;
+    private Spinner spinnerCollege;
+    private EditText etEmergencyName;
+    private EditText etEmergencyPhone;
+    private Spinner spinnerMobility;
+
+    private TextView tvRoleStatus;
+    private Button btnToggleAdmin;
+    private LinearLayout layoutAdminBroadcast;
+    private EditText etBroadcastMsg;
+    private TextView tvHotspotRanking;
+
+    private final String[] faculties = {
+            "Faculty of Computer Science & IT (FCSIT)",
+            "Faculty of Engineering",
+            "Faculty of Science",
+            "Faculty of Arts & Social Sciences",
+            "Faculty of Business & Economics"
+    };
+
+    private final String[] colleges = {
+            "KK12 (Kolej Kediaman Raja Dr. Nazrin Shah)",
+            "KK8 (Kolej Kediaman Kinabalu)",
+            "KK1 (Kolej Kediaman Tuanku Abdul Rahman)",
+            "KK5 (Kolej Kediaman Dayasari)",
+            "Off-Campus / Pantai Hillpark / Bangsar South"
+    };
+
+    private final String[] mobilityOptions = {
+            "Standard Walking",
+            "Wheelchair / Barrier-Free Ramp Only",
+            "Covered Walkway Priority (Rain Shelter)"
+    };
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+                             @Nullable Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_profile, container, false);
-        tvUserProfileInfo = view.findViewById(R.id.tvUserProfileInfo);
-        TextView tvSystemInfo = view.findViewById(R.id.tvSystemInfo);
+        viewModel = new ViewModelProvider(requireActivity()).get(ProfileViewModel.class);
 
-        viewModel = new ViewModelProvider(this).get(ProfileViewModel.class);
+        tvAuthStatus = view.findViewById(R.id.tv_auth_status);
+        etEmail = view.findViewById(R.id.et_siswa_email);
+        etName = view.findViewById(R.id.et_student_name);
+        etMatric = view.findViewById(R.id.et_matric_id);
+        spinnerFaculty = view.findViewById(R.id.spinner_faculty);
+        spinnerCollege = view.findViewById(R.id.spinner_college);
+        etEmergencyName = view.findViewById(R.id.et_emergency_name);
+        etEmergencyPhone = view.findViewById(R.id.et_emergency_phone);
+        spinnerMobility = view.findViewById(R.id.spinner_mobility);
 
-        viewModel.getUserRole().observe(getViewLifecycleOwner(), role -> updateProfileUi());
-        viewModel.getUserEmail().observe(getViewLifecycleOwner(), email -> updateProfileUi());
+        tvRoleStatus = view.findViewById(R.id.tv_role_status);
+        btnToggleAdmin = view.findViewById(R.id.btn_toggle_admin);
+        layoutAdminBroadcast = view.findViewById(R.id.layout_admin_broadcast);
+        etBroadcastMsg = view.findViewById(R.id.et_broadcast_msg);
+        tvHotspotRanking = view.findViewById(R.id.tv_hotspot_ranking);
 
-        Button btnToggleAdminRole = view.findViewById(R.id.btnToggleAdminRole);
-        btnToggleAdminRole.setOnClickListener(v -> {
-            viewModel.toggleAdminRole();
-            String currentRole = viewModel.getUserRole().getValue();
-            if ("JPPHB Maintenance Admin".equalsIgnoreCase(currentRole)) {
-                Toast.makeText(requireContext(), getString(R.string.toast_switched_admin), Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(requireContext(), getString(R.string.toast_switched_student), Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        if (tvSystemInfo != null) {
-            tvSystemInfo.setText(getString(R.string.privacy_info_text, BuildConfig.API_BASE_URL));
-        }
+        setupSpinners();
+        loadSavedProfileFields();
+        setupActions(view);
+        observeViewModel();
 
         return view;
     }
 
-    private void updateProfileUi() {
-        if (viewModel == null || tvUserProfileInfo == null) return;
-        String roleStr = viewModel.getUserRole().getValue();
-        String emailStr = viewModel.getUserEmail().getValue();
-        String displayRole = roleStr != null ? roleStr : "Student (FCSIT)";
-        String displayEmail = emailStr != null ? emailStr : "24231773@siswa.um.edu.my";
+    private void setupSpinners() {
+        spinnerFaculty.setAdapter(new ArrayAdapter<>(
+                requireContext(), android.R.layout.simple_spinner_dropdown_item, faculties));
+        spinnerCollege.setAdapter(new ArrayAdapter<>(
+                requireContext(), android.R.layout.simple_spinner_dropdown_item, colleges));
+        spinnerMobility.setAdapter(new ArrayAdapter<>(
+                requireContext(), android.R.layout.simple_spinner_dropdown_item, mobilityOptions));
+    }
 
-        String text = "• Name: Tan Liang Chuan (Siswa ID: 24231773)\n" +
-                "• Siswa Mail: " + displayEmail + "\n" +
-                "• Current Role: " + displayRole + "\n" +
-                "• Assigned Zone: Universiti Malaya Central Estates";
-        tvUserProfileInfo.setText(text);
+    private void loadSavedProfileFields() {
+        CampusRepository repo = CampusRepository.getInstance();
+        // 修复缺陷10：默认使用脱敏演示学生信息，不硬编码个人真实隐私数据
+        etEmail.setText(repo.getProfileField("siswa_email", "demo.student@siswa.um.edu.my"));
+        etName.setText(repo.getProfileField("student_name", "Ahmad Danial (Demo Student)"));
+        etMatric.setText(repo.getProfileField("matric_id", "S2104921"));
+        etEmergencyName.setText(repo.getProfileField("emergency_name", "Campus Security / Guardian"));
+        etEmergencyPhone.setText(repo.getProfileField("emergency_phone", "0379677070"));
+
+        setSpinnerToValue(spinnerFaculty, faculties, repo.getProfileField("faculty", faculties[0]));
+        setSpinnerToValue(spinnerCollege, colleges, repo.getProfileField("college", colleges[0]));
+        setSpinnerToValue(spinnerMobility, mobilityOptions, repo.getProfileField("mobility_pref", mobilityOptions[0]));
+    }
+
+    private void setSpinnerToValue(Spinner spinner, String[] items, String target) {
+        for (int i = 0; i < items.length; i++) {
+            if (items[i].equalsIgnoreCase(target)) {
+                spinner.setSelection(i);
+                return;
+            }
+        }
+    }
+
+    private void setupActions(View view) {
+        Button btnSaveProfile = view.findViewById(R.id.btn_save_profile);
+        Button btnPublishBroadcast = view.findViewById(R.id.btn_publish_broadcast);
+        Button btnClearBroadcast = view.findViewById(R.id.btn_clear_broadcast);
+        Button btnExportCsv = view.findViewById(R.id.btn_export_csv);
+
+        // FR 1.1 & 1.2: 校验 @siswa.um.edu.my 域名并持久化个人档案
+        btnSaveProfile.setOnClickListener(v -> {
+            String email = etEmail.getText().toString().trim().toLowerCase(Locale.ROOT);
+            String name = etName.getText().toString().trim();
+            String matric = etMatric.getText().toString().trim();
+            String emName = etEmergencyName.getText().toString().trim();
+            String emPhone = etEmergencyPhone.getText().toString().trim();
+
+            if (!email.endsWith("@siswa.um.edu.my")) {
+                tvAuthStatus.setText("❌ Domain Error: Must use an official @siswa.um.edu.my email!");
+                Toast.makeText(getContext(), "Invalid domain! Please use @siswa.um.edu.my", Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (name.isEmpty() || matric.isEmpty()) {
+                Toast.makeText(getContext(), "Please fill in your Name and Matric ID.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            CampusRepository.getInstance().saveUserProfile(
+                    email, name, matric,
+                    spinnerFaculty.getSelectedItem().toString(),
+                    spinnerCollege.getSelectedItem().toString(),
+                    emName, emPhone,
+                    spinnerMobility.getSelectedItem().toString()
+            );
+
+            tvAuthStatus.setText("✅ Verified Siswa Session: " + email + " (" + matric + ")");
+            Toast.makeText(getContext(), "Profile, Emergency Contact & Mobility Preferences saved!", Toast.LENGTH_SHORT).show();
+        });
+
+        // FR 1.3: 管理员角色切换必须验证 PIN 码 (默认 UM2026)
+        btnToggleAdmin.setOnClickListener(v -> {
+            if (CampusRepository.getInstance().isAdmin()) {
+                viewModel.switchToStudent();
+                Toast.makeText(getContext(), "Switched back to Student / Staff role.", Toast.LENGTH_SHORT).show();
+            } else {
+                showAdminPinDialog();
+            }
+        });
+
+        btnPublishBroadcast.setOnClickListener(v -> {
+            String msg = etBroadcastMsg.getText().toString().trim();
+            if (msg.isEmpty()) {
+                Toast.makeText(getContext(), "Please enter a broadcast message.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            viewModel.sendBroadcast(msg);
+            Toast.makeText(getContext(), "Emergency Broadcast published to Map & Push Notification!", Toast.LENGTH_SHORT).show();
+        });
+
+        btnClearBroadcast.setOnClickListener(v -> {
+            etBroadcastMsg.setText("");
+            viewModel.sendBroadcast("");
+            Toast.makeText(getContext(), "Broadcast banner cleared.", Toast.LENGTH_SHORT).show();
+        });
+
+        // FR 5.2: 导出并分享真实 CSV 报告
+        btnExportCsv.setOnClickListener(v -> {
+            String csvData = viewModel.exportCsvContent();
+            Intent sendIntent = new Intent(Intent.ACTION_SEND);
+            sendIntent.setType("text/csv");
+            sendIntent.putExtra(Intent.EXTRA_SUBJECT, "UM-ClearFlow Hazard Report Export (CSV)");
+            sendIntent.putExtra(Intent.EXTRA_TEXT, csvData);
+            startActivity(Intent.createChooser(sendIntent, "Export CSV Report via..."));
+        });
+    }
+
+    private void showAdminPinDialog() {
+        EditText inputPin = new EditText(requireContext());
+        inputPin.setHint("Enter JPPHB Admin PIN (Demo: UM2026)");
+        inputPin.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+
+        new AlertDialog.Builder(requireContext())
+                .setTitle("🔐 JPPHB Admin Verification")
+                .setMessage("Enter staff authorization code to unlock ticket status updates and campus broadcast:")
+                .setView(inputPin)
+                .setPositiveButton("Verify", (dialog, which) -> {
+                    String pin = inputPin.getText().toString();
+                    if (viewModel.verifyAdminPin(pin)) {
+                        Toast.makeText(getContext(), "✅ Authenticated as JPPHB Maintenance Admin!", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(getContext(), "❌ Invalid Admin PIN! Access Denied.", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void observeViewModel() {
+        viewModel.getUserRole().observe(getViewLifecycleOwner(), role -> {
+            boolean isAdmin = "JPPHB Maintenance Admin".equals(role);
+            tvRoleStatus.setText("Current Role: " + role);
+            btnToggleAdmin.setText(isAdmin
+                    ? "🔓 Logout Admin (Return to Student View)"
+                    : "🔐 Authenticate JPPHB Admin (PIN: UM2026)");
+            layoutAdminBroadcast.setVisibility(isAdmin ? View.VISIBLE : View.GONE);
+        });
+
+        viewModel.getReports().observe(getViewLifecycleOwner(), reports -> {
+            tvHotspotRanking.setText(viewModel.getHotspotStats());
+        });
     }
 }

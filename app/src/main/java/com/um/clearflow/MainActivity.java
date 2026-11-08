@@ -1,116 +1,93 @@
 package com.um.clearflow;
 
-import android.content.Intent;
-import android.net.Uri;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
-import android.widget.Button;
-import androidx.activity.EdgeToEdge;
-import androidx.appcompat.app.AlertDialog;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentTransaction;
+
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 public class MainActivity extends AppCompatActivity {
 
+    private Fragment mapFragment;
+    private Fragment reportFragment;
+    private Fragment weatherAiFragment;
+    private Fragment profileFragment;
+    private Fragment activeFragment;
+
+    private final ActivityResultLauncher<String> notifPermLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+                // Notification permission callback
+            });
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
+        // 初始化 SQLite 与全局上下文
+        CampusRepository.init(getApplicationContext());
         setContentView(R.layout.activity_main);
 
-        View mainRoot = findViewById(R.id.main_root);
-        View topHeader = findViewById(R.id.topHeader);
-        BottomNavigationView bottomNav = findViewById(R.id.bottom_navigation);
+        requestNotificationPermissionIfNeeded();
 
-        if (mainRoot != null && topHeader != null && bottomNav != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(mainRoot, (v, windowInsets) -> {
-                Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-                topHeader.setPadding(
-                        topHeader.getPaddingLeft(),
-                        insets.top + 14,
-                        topHeader.getPaddingRight(),
-                        topHeader.getPaddingBottom()
-                );
-                bottomNav.setPadding(
-                        bottomNav.getPaddingLeft(),
-                        bottomNav.getPaddingTop(),
-                        bottomNav.getPaddingRight(),
-                        insets.bottom
-                );
-                return WindowInsetsCompat.CONSUMED;
-            });
-        }
-
-        Button btnTopSos = findViewById(R.id.btnTopSos);
-
+        FragmentManager fm = getSupportFragmentManager();
         if (savedInstanceState == null) {
-            getSupportFragmentManager().beginTransaction()
-                    .replace(R.id.fragment_container, new MapFragment())
+            mapFragment = new MapFragment();
+            reportFragment = new ReportFragment();
+            weatherAiFragment = new WeatherAiFragment();
+            profileFragment = new ProfileFragment();
+
+            fm.beginTransaction()
+                    .add(R.id.fragment_container, profileFragment, "PROFILE").hide(profileFragment)
+                    .add(R.id.fragment_container, weatherAiFragment, "WEATHER").hide(weatherAiFragment)
+                    .add(R.id.fragment_container, reportFragment, "REPORT").hide(reportFragment)
+                    .add(R.id.fragment_container, mapFragment, "MAP")
                     .commit();
+            activeFragment = mapFragment;
+        } else {
+            mapFragment = fm.findFragmentByTag("MAP");
+            reportFragment = fm.findFragmentByTag("REPORT");
+            weatherAiFragment = fm.findFragmentByTag("WEATHER");
+            profileFragment = fm.findFragmentByTag("PROFILE");
+            activeFragment = mapFragment;
         }
 
+        BottomNavigationView bottomNav = findViewById(R.id.bottom_navigation);
         bottomNav.setOnItemSelectedListener(item -> {
-            Fragment selectedFragment = null;
             int id = item.getItemId();
+            Fragment target = mapFragment;
             if (id == R.id.nav_map) {
-                selectedFragment = new MapFragment();
+                target = mapFragment;
             } else if (id == R.id.nav_reports) {
-                selectedFragment = new ReportFragment();
+                target = reportFragment;
             } else if (id == R.id.nav_weather_ai) {
-                selectedFragment = new WeatherAiFragment();
+                target = weatherAiFragment;
             } else if (id == R.id.nav_profile) {
-                selectedFragment = new ProfileFragment();
+                target = profileFragment;
             }
 
-            if (selectedFragment != null) {
-                getSupportFragmentManager().beginTransaction()
-                        .replace(R.id.fragment_container, selectedFragment)
-                        .commit();
+            if (target != null && target != activeFragment) {
+                FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
+                ft.hide(activeFragment).show(target).commit();
+                activeFragment = target;
             }
             return true;
         });
+    }
 
-        if (btnTopSos != null) {
-            btnTopSos.setOnClickListener(v -> showUmSosDialog());
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            }
         }
-    }
-
-    private void showUmSosDialog() {
-        String[] options = {
-                getString(R.string.sos_um_security),
-                getString(R.string.sos_jpphb_maintenance),
-                getString(R.string.sos_ummc_emergency),
-                getString(R.string.sos_share_gps)
-        };
-
-        new AlertDialog.Builder(this)
-                .setTitle(getString(R.string.sos_dialog_title))
-                .setItems(options, (dialog, which) -> {
-                    if (which == 0) {
-                        dialPhone("0379677070");
-                    } else if (which == 1) {
-                        dialPhone("0379673286");
-                    } else if (which == 2) {
-                        dialPhone("0379494422");
-                    } else {
-                        String userEmail = CampusRepository.getInstance().getCurrentUserEmail();
-                        new AlertDialog.Builder(this)
-                                .setTitle(getString(R.string.gps_alert_sent_title))
-                                .setMessage(getString(R.string.gps_alert_sent_msg, "3.1281° N, 101.6505° E", userEmail))
-                                .setPositiveButton(getString(R.string.btn_ok), null)
-                                .show();
-                    }
-                })
-                .setNegativeButton(getString(R.string.btn_cancel), null)
-                .show();
-    }
-
-    private void dialPhone(String phone) {
-        Intent intent = new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + phone));
-        startActivity(intent);
     }
 }

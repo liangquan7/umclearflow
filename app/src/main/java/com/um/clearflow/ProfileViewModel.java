@@ -1,5 +1,7 @@
 package com.um.clearflow;
 
+import java.util.List;
+
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.ViewModel;
 
@@ -11,16 +13,31 @@ public class ProfileViewModel extends ViewModel {
         return repository.getUserRoleLiveData();
     }
 
-    public LiveData<String> getUserEmail() {
-        return repository.getUserEmailLiveData();
+    public LiveData<List<HazardReport>> getReports() {
+        return repository.getReportsLiveData();
     }
 
-    public void toggleAdminRole() {
-        String currentRole = repository.getCurrentUserRole();
-        if ("Student (FCSIT)".equals(currentRole)) {
-            repository.setUserRole("JPPHB Maintenance Admin");
-        } else {
-            repository.setUserRole("Student (FCSIT)");
-        }
+    public LiveData<String> getBroadcastBanner() {
+        return repository.getBroadcastBannerLiveData();
+    }
+
+    public boolean verifyAdminPin(String pin) {
+        return repository.authenticateAndSetAdmin(pin);
+    }
+
+    public void switchToStudent() {
+        repository.switchToStudentRole();
+    }
+
+    public void sendBroadcast(String message) {
+        repository.publishAdminBroadcast(message);
+    }
+
+    public String getHotspotStats() {
+        return repository.generateHotspotRankingText();
+    }
+
+    public String exportCsvContent() {
+        return repository.exportReportsToCsv();
     }
 }

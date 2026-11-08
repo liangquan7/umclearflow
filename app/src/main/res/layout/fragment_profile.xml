@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F4F7FA"
+    android:background="#F8FAFC"
     android:padding="14dp">
 
     <LinearLayout
@@ -11,80 +10,289 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- User Profile Card -->
-        <androidx.cardview.widget.CardView
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Siswa Identity, Safety Profile &amp; Analytics"
+            android:textColor="#0F172A"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:text="FR 1.1 Siswa Auth • FR 1.2 Emergency/Mobility • FR 1.3 Admin • FR 5.1/5.2 CSV"
+            android:textColor="#64748B"
+            android:textSize="12sp" />
+
+        <!-- FR 1.1 & 1.2 Siswa Mail 登录、学院宿舍绑定与紧急联系人 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#FFFFFF"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="4dp">
+            android:background="#FFFFFF"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:id="@+id/tv_auth_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#DCFCE7"
+                android:padding="8dp"
+                android:text="✅ Verified UM Siswa Session"
+                android:textColor="#166534"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_siswa_email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Siswa Mail (@siswa.um.edu.my)"
+                android:inputType="textEmailAddress"
+                android:textColor="#0F172A"
+                android:textSize="13sp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                android:orientation="horizontal">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <EditText
+                    android:id="@+id/et_student_name"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="@string/profile_card_title"
-                    android:textColor="#002B5B"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvUserProfileInfo"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textColor="#333333"
+                    android:layout_weight="1"
+                    android:hint="Student Full Name"
+                    android:inputType="textPersonName"
+                    android:textColor="#0F172A"
                     android:textSize="13sp" />
 
-                <Button
-                    android:id="@+id/btnToggleAdminRole"
-                    android:layout_width="match_parent"
-                    android:layout_height="42dp"
-                    android:layout_marginTop="12dp"
-                    android:backgroundTint="#002B5B"
-                    android:text="@string/btn_toggle_role"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp" />
+                <EditText
+                    android:id="@+id/et_matric_id"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:hint="Matric ID (e.g. S2104921)"
+                    android:inputType="textCapCharacters"
+                    android:textColor="#0F172A"
+                    android:textSize="13sp" />
             </LinearLayout>
-        </androidx.cardview.widget.CardView>
 
-        <!-- System & Config Card -->
-        <androidx.cardview.widget.CardView
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Faculty &amp; Residential College (FR 1.1)"
+                android:textColor="#475569"
+                android:textSize="12sp" />
+
+            <Spinner
+                android:id="@+id/spinner_faculty"
+                android:layout_width="match_parent"
+                android:layout_height="40dp" />
+
+            <Spinner
+                android:id="@+id/spinner_college"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Emergency Contact &amp; Mobility Preference (FR 1.2)"
+                android:textColor="#475569"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/et_emergency_name"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Guardian / Contact Name"
+                    android:inputType="textPersonName"
+                    android:textColor="#0F172A"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/et_emergency_phone"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:hint="Phone (e.g. 0123456789)"
+                    android:inputType="phone"
+                    android:textColor="#0F172A"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <Spinner
+                android:id="@+id/spinner_mobility"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="4dp" />
+
+            <Button
+                android:id="@+id/btn_save_profile"
+                android:layout_width="match_parent"
+                android:layout_height="42dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#2563EB"
+                android:text="💾 Verify Siswa Domain &amp; Save Profile"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- FR 1.3 管理员 PIN 码鉴权与全校应急广播 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            app:cardBackgroundColor="#E8EAF6"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="4dp">
+            android:background="#FFFFFF"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="14dp">
 
-            <LinearLayout
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="JPPHB Admin Access &amp; Emergency Broadcast (FR 1.3)"
+                android:textColor="#1E293B"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_role_status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Current Role: UM Student / Staff"
+                android:textColor="#475569"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_toggle_admin"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="6dp"
+                android:text="🔐 Authenticate JPPHB Admin (PIN: UM2026)"
+                android:textSize="12sp" />
+
+            <!-- 仅在通过 PIN 鉴权后显示的管理员专属应急广播面板 -->
+            <LinearLayout
+                android:id="@+id/layout_admin_broadcast"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FFFBEB"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="10dp"
+                android:visibility="gone">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/privacy_card_title"
-                    android:textColor="#1A237E"
-                    android:textSize="16sp"
+                    android:text="📢 Admin Emergency Broadcast Console"
+                    android:textColor="#92400E"
+                    android:textSize="12sp"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvSystemInfo"
+                <EditText
+                    android:id="@+id/et_broadcast_msg"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textColor="#37474F"
+                    android:hint="Enter campus-wide alert banner &amp; push notification..."
+                    android:textColor="#0F172A"
                     android:textSize="12sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btn_publish_broadcast"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_marginEnd="6dp"
+                        android:layout_weight="1"
+                        android:backgroundTint="#D97706"
+                        android:text="Publish Alert"
+                        android:textColor="#FFFFFF"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btn_clear_broadcast"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:text="Clear Banner"
+                        android:textSize="11sp" />
+                </LinearLayout>
             </LinearLayout>
-        </androidx.cardview.widget.CardView>
+        </LinearLayout>
+
+        <!-- FR 5.1 动态高频黑点排行榜 & FR 5.2 导出 CSV 报告 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="#FFFFFF"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Live SQLite Hotspot Ranking &amp; CSV Export (FR 5.1 / 5.2)"
+                android:textColor="#1E293B"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_hotspot_ranking"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#F1F5F9"
+                android:padding="10dp"
+                android:textColor="#0F172A"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_export_csv"
+                android:layout_width="match_parent"
+                android:layout_height="42dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#0F172A"
+                android:text="📄 Export &amp; Share Full SQLite Report (.CSV)"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/privacy_info_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Storage Engine: Android SQLiteOpenHelper (um_clearflow.db) • Local Backend Endpoint: http://10.0.2.2:8000/"
+                android:textColor="#64748B"
+                android:textSize="11sp" />
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>

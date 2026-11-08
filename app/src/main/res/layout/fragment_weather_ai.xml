@@ -1,166 +1,195 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F4F7FA"
-    android:padding="12dp">
+    android:background="#F8FAFC"
+    android:padding="14dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- 卡片 1：实时 Open-Meteo 马大内涝与降雨气象预测 (Module 3 FR3.2) -->
-        <androidx.cardview.widget.CardView
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Early Warning &amp; AI Emergency Assistant"
+            android:textColor="#0F172A"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:text="FR 3.2 Forecast × Topo Risk Fusion • FR 3.3 AI Chat • FR 5.3 Push Alerts"
+            android:textColor="#64748B"
+            android:textSize="12sp" />
+
+        <!-- FR 3.2 & 5.3 实时气象与6小时预报融合卡片 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#002B5B"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="4dp">
+            android:background="#FFFFFF"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1. Open-Meteo 6-Hour Forecast &amp; Flood Risk Fusion"
+                android:textColor="#1E293B"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_weather_live"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#F1F5F9"
+                android:padding="10dp"
+                android:text="Loading Open-Meteo telemetry..."
+                android:textColor="#0F172A"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tv_risk_matrix"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FEF2F2"
+                android:padding="10dp"
+                android:text="Computing zone risk scores..."
+                android:textColor="#991B1B"
+                android:textSize="12sp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    text="☁️ UM Live Climate &amp; Flood Risk Sentinel"
-                    android:text="☁️ UM Live Climate &amp; Flood Risk Sentinel"
-                    android:textColor="#FFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvWeatherStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="#103F73"
-                    android:padding="12dp"
-                    android:text="Fetching live Open-Meteo weather data for Universiti Malaya (Latitude: 3.1209)..."
-                    android:textColor="#E3F2FD"
-                    android:textSize="13sp" />
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
 
                 <Button
-                    android:id="@+id/btnRefreshWeather"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:layout_marginTop="10dp"
-                    android:backgroundTint="#1976D2"
-                    android:text="🔄 Refresh Weather API"
+                    android:id="@+id/btn_refresh_weather"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="🔄 Live API Sync"
+                    android:textSize="11sp" />
+
+                <Button
+                    android:id="@+id/btn_simulate_squall"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#DC2626"
+                    android:text="⛈️ Simulate Squall Alert"
+                    android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
-        </androidx.cardview.widget.CardView>
+        </LinearLayout>
 
-        <!-- 卡片 2：校园应急 AI 智能助手 (Module 3 FR3.3) -->
-        <androidx.cardview.widget.CardView
+        <!-- FR 3.3 交互式 AI 应急聊天助手卡片 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="#FFFFFF"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="4dp">
+            android:layout_marginTop="14dp"
+            android:background="#FFFFFF"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="14dp">
 
-            <LinearLayout
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="2. UM-ClearFlow AI Emergency Assistant (FR 3.3)"
+                android:textColor="#1E293B"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <!-- 快捷提问按钮栏 -->
+            <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🤖 UM Emergency AI Assistant"
-                    android:textColor="#002B5B"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Ask questions about campus flood safety, blocked drains, or JPPHB emergency contacts."
-                    android:textColor="#666666"
-                    android:textSize="12sp" />
-
-                <!-- AI 对话输出框 -->
-                <TextView
-                    android:id="@+id/tvAiChatResponse"
-                    android:layout_width="match_parent"
-                    android:layout_height="100dp"
-                    android:layout_marginTop="8dp"
-                    android:background="#F3E5F5"
-                    android:padding="10dp"
-                    android:scrollbars="vertical"
-                    android:text="Hello! I am your UM Climate &amp; Drainage AI Assistant. Tap a quick prompt below to test."
-                    android:textColor="#4A148C"
-                    android:textSize="12sp" />
+                android:layout_marginTop="6dp"
+                android:scrollbars="none">
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
                     android:orientation="horizontal">
 
                     <Button
-                        android:id="@+id/btnPrompt1"
-                        android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_marginEnd="4dp"
-                        android:layout_weight="1"
-                        android:backgroundTint="#7B1FA2"
-                        android:text="⚡ Flood Safety"
-                        android:textSize="10sp" />
+                        android:id="@+id/btn_prompt_shelter"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="Nearest Shelters?"
+                        android:textSize="11sp" />
 
                     <Button
-                        android:id="@+id/btnPrompt2"
-                        android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_weight="1"
-                        android:backgroundTint="#7B1FA2"
-                        android:text="🌳 Fallen Tree"
-                        android:textSize="10sp" />
+                        android:id="@+id/btn_prompt_route"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginEnd="6dp"
+                        android:text="Safe Route Status?"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btn_prompt_sos"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:text="Emergency Contacts"
+                        android:textSize="11sp" />
                 </LinearLayout>
-            </LinearLayout>
-        </androidx.cardview.widget.CardView>
+            </HorizontalScrollView>
 
-        <!-- 卡片 3：校园隐患高频排行榜与统计看板 (Module 5) -->
-        <androidx.cardview.widget.CardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="#FFFFFF"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="4dp">
+            <TextView
+                android:id="@+id/tv_chat_history"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#EFF6FF"
+                android:padding="12dp"
+                android:textColor="#1E3A8A"
+                android:textSize="12sp" />
 
+            <!-- 真实聊天输入框 + 发送按钮 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <EditText
+                    android:id="@+id/et_chat_input"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="📊 Campus Climate Resilience Analytics"
-                    android:textColor="#002B5B"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvAnalyticsSummary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="• Most Prone Zone: Jalan Lingkungan Budi (KL Gate)\n• Total Active Hazards: 4 Incidents\n• Average JPPHB Resolution Time: 2.4 Hours\n• SDG 13.1 Target Alignment: Active &amp; Monitored"
-                    android:textColor="#333333"
+                    android:layout_weight="1"
+                    android:hint="Ask about shelters, flooded roads, or SOP..."
+                    android:inputType="textCapSentences"
+                    android:textColor="#0F172A"
                     android:textSize="13sp" />
+
+                <Button
+                    android:id="@+id/btn_send_chat"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="6dp"
+                    android:backgroundTint="#2563EB"
+                    android:text="Send"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp" />
             </LinearLayout>
-        </androidx.cardview.widget.CardView>
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>

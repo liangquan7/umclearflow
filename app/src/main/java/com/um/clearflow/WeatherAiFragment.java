@@ -4,7 +4,10 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -12,41 +15,55 @@ import androidx.lifecycle.ViewModelProvider;
 
 public class WeatherAiFragment extends Fragment {
 
-    private TextView tvWeatherStatus, tvAiChatResponse;
     private WeatherAiViewModel viewModel;
+    private TextView tvWeatherLive;
+    private TextView tvRiskMatrix;
+    private TextView tvChatHistory;
+    private EditText etChatInput;
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+                             @Nullable Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_weather_ai, container, false);
+        viewModel = new ViewModelProvider(requireActivity()).get(WeatherAiViewModel.class);
 
-        tvWeatherStatus = view.findViewById(R.id.tvWeatherStatus);
-        tvAiChatResponse = view.findViewById(R.id.tvAiChatResponse);
+        tvWeatherLive = view.findViewById(R.id.tv_weather_live);
+        tvRiskMatrix = view.findViewById(R.id.tv_risk_matrix);
+        tvChatHistory = view.findViewById(R.id.tv_chat_history);
+        etChatInput = view.findViewById(R.id.et_chat_input);
 
-        viewModel = new ViewModelProvider(this).get(WeatherAiViewModel.class);
+        Button btnRefresh = view.findViewById(R.id.btn_refresh_weather);
+        Button btnSimSquall = view.findViewById(R.id.btn_simulate_squall);
+        Button btnPromptShelter = view.findViewById(R.id.btn_prompt_shelter);
+        Button btnPromptRoute = view.findViewById(R.id.btn_prompt_route);
+        Button btnPromptSos = view.findViewById(R.id.btn_prompt_sos);
+        Button btnSendChat = view.findViewById(R.id.btn_send_chat);
 
-        // Observers
-        viewModel.getWeatherState().observe(getViewLifecycleOwner(), state -> {
-            if (state != null) {
-                if (state.isLoading) {
-                    tvWeatherStatus.setText(state.weatherText);
-                } else if (state.errorText != null) {
-                    tvWeatherStatus.setText(state.errorText);
-                } else if (state.weatherText != null) {
-                    tvWeatherStatus.setText(state.weatherText);
-                }
+        btnRefresh.setOnClickListener(v -> viewModel.fetchLiveWeatherAndForecast(false));
+        btnSimSquall.setOnClickListener(v -> viewModel.fetchLiveWeatherAndForecast(true));
+
+        btnPromptShelter.setOnClickListener(v ->
+                viewModel.sendUserChatPrompt("Where are the nearest flood evacuation shelters?"));
+        btnPromptRoute.setOnClickListener(v ->
+                viewModel.sendUserChatPrompt("Is the route from Pantai Gate to FCSIT safe right now?"));
+        btnPromptSos.setOnClickListener(v ->
+                viewModel.sendUserChatPrompt("What are the emergency SOS contact numbers?"));
+
+        btnSendChat.setOnClickListener(v -> {
+            String msg = etChatInput.getText().toString().trim();
+            if (!msg.isEmpty()) {
+                viewModel.sendUserChatPrompt(msg);
+                etChatInput.setText("");
             }
         });
 
-        viewModel.getAiResponse().observe(getViewLifecycleOwner(), response -> {
-            if (response != null) {
-                tvAiChatResponse.setText(response);
-            }
-        });
+        viewModel.getWeatherSummary().observe(getViewLifecycleOwner(), text -> tvWeatherLive.setText(text));
+        viewModel.getRiskMatrix().observe(getViewLifecycleOwner(), text -> tvRiskMatrix.setText(text));
+        viewModel.getChatHistory().observe(getViewLifecycleOwner(), text -> tvChatHistory.setText(text));
 
-        view.findViewById(R.id.btnRefreshWeather).setOnClickListener(v -> viewModel.fetchOpenMeteoWeather());
-        view.findViewById(R.id.btnPrompt1).setOnClickListener(v -> viewModel.selectPrompt(1));
-        view.findViewById(R.id.btnPrompt2).setOnClickListener(v -> viewModel.selectPrompt(2));
+        // 首次进入拉取一次真实 Open-Meteo 6 小时预报
+        viewModel.fetchLiveWeatherAndForecast(false);
 
         return view;
     }
