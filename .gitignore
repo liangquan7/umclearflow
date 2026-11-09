@@ -1,5 +1,7 @@
 *.iml
 .gradle
+/.gradle-user-home
+/.android-user-home
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -13,3 +15,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+__pycache__/
+*.py[cod]

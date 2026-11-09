@@ -20,9 +20,10 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,8 +36,13 @@ import java.util.concurrent.Executors;
 
 public class CampusRepository {
 
-    public static final String API_BASE_URL = "http://10.0.2.2:8000/";
-    public static final String ADMIN_PIN = "UM2026"; // 管理员验证 PIN 码
+    public static final String API_BASE_URL = BuildConfig.API_BASE_URL;
+    // Admin PIN is no longer stored in plaintext: only a salted SHA-256 hash from BuildConfig is compared.
+    private static final String PIN_SALT = "clearflow-admin-v1:";
+    private static final int MAX_PIN_ATTEMPTS = 5;
+    private static final long PIN_LOCKOUT_MS = 60_000L;
+    private int failedPinAttempts = 0;
+    private long pinLockedUntil = 0L;
     public static final String CHANNEL_ID = "um_clearflow_alerts";
 
     private static volatile CampusRepository instance;
@@ -53,8 +59,10 @@ public class CampusRepository {
     private final MutableLiveData<String> broadcastBannerLiveData = new MutableLiveData<>("");
 
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
-    private double latestRainfallMm = 0.0;
-    private double forecast3hRainMm = 0.0;
+    private volatile double latestRainfallMm = 0.0;
+    private volatile double forecast3hRainMm = 0.0;
+    // Synchronous role cache: postValue() is async, so isAdmin() must not read LiveData
+    private volatile String currentRole = "UM Student / Staff";
 
     public static class TriageResult {
         public final String severity;
@@ -90,8 +98,10 @@ public class CampusRepository {
             this.dbHelper = new ClearFlowDbHelper(appContext);
             this.prefs = appContext.getSharedPreferences("um_clearflow_prefs", Context.MODE_PRIVATE);
             createNotificationChannel();
-            String savedRole = prefs.getString("user_role", "UM Student / Staff");
-            userRoleLiveData.postValue(savedRole);
+            // Admin access is a session privilege; never restore it from editable local preferences.
+            currentRole = "UM Student / Staff";
+            prefs.edit().remove("user_role").apply();
+            userRoleLiveData.postValue(currentRole);
             String savedBroadcast = prefs.getString("admin_broadcast", "");
             broadcastBannerLiveData.postValue(savedBroadcast);
         }
@@ -106,6 +116,9 @@ public class CampusRepository {
             instance.dbHelper = new ClearFlowDbHelper(instance.appContext);
             instance.prefs = instance.appContext.getSharedPreferences("um_clearflow_prefs", Context.MODE_PRIVATE);
             instance.createNotificationChannel();
+            instance.currentRole = "UM Student / Staff";
+            instance.prefs.edit().remove("user_role").apply();
+            instance.userRoleLiveData.postValue(instance.currentRole);
             instance.loadFromSqliteOrSeed();
         }
     }
@@ -124,7 +137,9 @@ public class CampusRepository {
                 if (dbHelper != null) {
                     SQLiteDatabase db = dbHelper.getWritableDatabase();
                     Cursor c = db.rawQuery("SELECT * FROM hazard_reports ORDER BY rowid DESC", null);
+                    int photoColIdx = c.getColumnIndex("photoUri");
                     while (c.moveToNext()) {
+                        String photoUri = photoColIdx >= 0 ? c.getString(photoColIdx) : "";
                         reportsList.add(new HazardReport(
                                 c.getString(c.getColumnIndexOrThrow("id")),
                                 c.getString(c.getColumnIndexOrThrow("title")),
@@ -141,7 +156,8 @@ public class CampusRepository {
                                 c.getDouble(c.getColumnIndexOrThrow("aiConfidence")),
                                 c.getString(c.getColumnIndexOrThrow("aiTriageNote")),
                                 c.getString(c.getColumnIndexOrThrow("reporterEmail")),
-                                c.getString(c.getColumnIndexOrThrow("timeline"))
+                                c.getString(c.getColumnIndexOrThrow("timeline")),
+                                photoUri
                         ));
                     }
                     c.close();
@@ -205,7 +221,7 @@ public class CampusRepository {
                 "Submitted",
                 3.1338, 101.6518,
                 "Today, 12:40",
-                5, 0, 0.87,
+                5, 2, 0.87,
                 "[Demo Seed] Pedestrian detour required around bus shelter.",
                 "demo.seed@siswa.um.edu.my",
                 "12:40 • Submitted (Demo Seed)"
@@ -242,7 +258,37 @@ public class CampusRepository {
         cv.put("aiTriageNote", r.aiTriageNote);
         cv.put("reporterEmail", r.reporterEmail);
         cv.put("timeline", r.timeline);
+        cv.put("photoUri", r.photoUri != null ? r.photoUri : "");
         db.insertWithOnConflict("hazard_reports", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    private void insertUserVoteDb(String reportId, String voteType) {
+        if (dbHelper == null) return;
+        ContentValues cv = new ContentValues();
+        cv.put("report_id", reportId);
+        cv.put("vote_type", voteType);
+        dbHelper.getWritableDatabase().insertWithOnConflict(
+                "user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
+    }
+
+    /** Persist captured report photo into internal app storage (files/report_photos/<id>.jpg). */
+    public String saveReportPhotoToInternalStorage(String reportId, Bitmap bitmap) {
+        if (appContext == null || bitmap == null || reportId == null) return "";
+        try {
+            File dir = new File(appContext.getFilesDir(), "report_photos");
+            if (!dir.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+            }
+            File photoFile = new File(dir, reportId + ".jpg");
+            try (FileOutputStream fos = new FileOutputStream(photoFile)) {
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fos);
+                fos.flush();
+            }
+            return photoFile.getAbsolutePath();
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     // 必须在 synchronized(reportsList) 锁内调用，深拷贝每个对象后再 postValue
@@ -251,7 +297,7 @@ public class CampusRepository {
         for (HazardReport r : reportsList) {
             snapshot.add(new HazardReport(r));
         }
-        reportsLiveData.postValue(snapshot);
+        try { reportsLiveData.postValue(snapshot); } catch (RuntimeException ignored) {}
     }
 
     public LiveData<List<HazardReport>> getReportsLiveData() {
@@ -267,7 +313,7 @@ public class CampusRepository {
     }
 
     public String getCurrentUserRole() {
-        String val = userRoleLiveData.getValue();
+        String val = currentRole;
         return val != null ? val : "UM Student / Staff";
     }
 
@@ -276,38 +322,60 @@ public class CampusRepository {
     }
 
     // 带 PIN 码验证的管理员切换 (FR 1.3)
-    public boolean authenticateAndSetAdmin(String inputPin) {
-        if (ADMIN_PIN.equals(inputPin != null ? inputPin.trim() : "")) {
+    public synchronized boolean authenticateAndSetAdmin(String inputPin) {
+        long now = System.currentTimeMillis();
+        if (now < pinLockedUntil) return false;
+        String pin = inputPin != null ? inputPin.trim() : "";
+        if (!pin.isEmpty() && constantTimeEquals(sha256Hex(PIN_SALT + pin), BuildConfig.ADMIN_PIN_HASH)) {
+            failedPinAttempts = 0;
             setRoleInternal("JPPHB Maintenance Admin");
             return true;
         }
+        failedPinAttempts++;
+        if (failedPinAttempts >= MAX_PIN_ATTEMPTS) {
+            failedPinAttempts = 0;
+            pinLockedUntil = now + PIN_LOCKOUT_MS;
+        }
         return false;
+    }
+
+    /** Remaining lockout in ms after too many wrong PINs (0 = not locked). */
+    public synchronized long getPinLockoutRemainingMs() {
+        return Math.max(0L, pinLockedUntil - System.currentTimeMillis());
+    }
+
+    private static String sha256Hex(String s) {
+        try {
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(d.length * 2);
+            for (byte b : d) sb.append(String.format(Locale.ROOT, "%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return "";
+        }
+    }
+
+    private static boolean constantTimeEquals(String a, String b) {
+        return java.security.MessageDigest.isEqual(
+                a.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                b.toLowerCase(Locale.ROOT).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     public void switchToStudentRole() {
         setRoleInternal("UM Student / Staff");
     }
 
-    // 兼容旧调用
-    public void toggleAdminRole() {
-        if (isAdmin()) {
-            switchToStudentRole();
-        } else {
-            setRoleInternal("JPPHB Maintenance Admin");
-        }
-    }
-
     private void setRoleInternal(String newRole) {
-        userRoleLiveData.postValue(newRole);
-        if (prefs != null) {
-            prefs.edit().putString("user_role", newRole).apply();
-        }
+        currentRole = newRole;
+        try { userRoleLiveData.postValue(newRole); } catch (RuntimeException ignored) {}
     }
 
     // FR 1.3: 管理员全校应急广播
     public void publishAdminBroadcast(String message) {
+        if (!isAdmin()) return;
         String clean = message != null ? message.trim() : "";
-        broadcastBannerLiveData.postValue(clean);
+        try { broadcastBannerLiveData.postValue(clean); } catch (RuntimeException ignored) {}
         if (prefs != null) {
             prefs.edit().putString("admin_broadcast", clean).apply();
         }
@@ -316,7 +384,7 @@ public class CampusRepository {
         }
     }
 
-    // FR 2.1 + 重复上报合并 (50米内同类型未解决隐患自动合并 +1)
+    // FR 2.1 + 重复上报合并 (50米内同类型未解决隐患自动合并 +1，并支持高危升级与防刷记录)
     public void addReport(HazardReport newReport) {
         executorService.execute(() -> {
             synchronized (reportsList) {
@@ -328,17 +396,41 @@ public class CampusRepository {
                                 existing.latitude, existing.longitude,
                                 newReport.latitude, newReport.longitude);
                         if (distMeters <= 50.0) {
-                            existing.upvotes += 1;
+                            boolean firstVoteOnDevice = upvotedIds.add(existing.id);
+                            if (firstVoteOnDevice) {
+                                existing.upvotes += 1;
+                                insertUserVoteDb(existing.id, "UPVOTE");
+                            }
+                            if ((existing.photoUri == null || existing.photoUri.isEmpty())
+                                    && newReport.photoUri != null && !newReport.photoUri.isEmpty()) {
+                                existing.photoUri = newReport.photoUri;
+                            }
+                            boolean upgradedToCritical = !"Critical".equalsIgnoreCase(existing.severity)
+                                    && "Critical".equalsIgnoreCase(newReport.severity);
+                            if (upgradedToCritical) {
+                                existing.severity = "Critical";
+                            }
                             existing.timeline = existing.timeline + "\n" + nowTime
-                                    + " • Merged nearby duplicate report (<50m, Upvotes +1)";
+                                    + " • Merged nearby duplicate report (<50m"
+                                    + (firstVoteOnDevice ? ", Upvote +1" : ", this device's vote already counted")
+                                    + (upgradedToCritical ? ", escalated to Critical)" : ")");
                             insertOrUpdateReportDb(existing);
                             publishSnapshotLocked();
+                            if (upgradedToCritical) {
+                                sendLocalAlertNotification(
+                                        "⚠️ Hazard Escalated to Critical",
+                                        existing.hazardType + " near " + existing.locationName + ": " + existing.title
+                                );
+                            }
                             return;
                         }
                     }
                 }
 
                 reportsList.add(0, new HazardReport(newReport));
+                if (newReport.upvotes > 0 && upvotedIds.add(newReport.id)) {
+                    insertUserVoteDb(newReport.id, "UPVOTE");
+                }
                 insertOrUpdateReportDb(newReport);
                 publishSnapshotLocked();
 
@@ -393,21 +485,26 @@ public class CampusRepository {
     public void voteResolveReport(String id) {
         executorService.execute(() -> {
             synchronized (reportsList) {
-                if (resolveVotedIds.contains(id)) return;
+                boolean alreadyVotedOnDevice = resolveVotedIds.contains(id);
+                // In release builds without demo mode, restrict to 1 vote per device;
+                // in debug/demo builds, allow simulating additional community votes to demonstrate 3/3 closure.
+                if (alreadyVotedOnDevice && !BuildConfig.DEBUG) return;
                 String nowTime = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
                 for (HazardReport r : reportsList) {
                     if (r.id.equals(id)) {
+                        if ("Resolved".equalsIgnoreCase(r.status)) break;
                         r.resolveVotes++;
                         resolveVotedIds.add(id);
-                        if (r.resolveVotes >= 3 && !"Resolved".equalsIgnoreCase(r.status)) {
+                        String demoSuffix = alreadyVotedOnDevice ? " [Demo Multi-User Vote]" : "";
+                        if (r.resolveVotes >= 3) {
                             r.status = "Resolved";
                             r.timeline = r.timeline + "\n" + nowTime
-                                    + " • Marked Resolved by Community Verification (3/3 votes)";
+                                    + " • Marked Resolved by Community Verification (3/3 votes)" + demoSuffix;
                         } else {
                             r.timeline = r.timeline + "\n" + nowTime
-                                    + " • Community Clear Vote (" + r.resolveVotes + "/3)";
+                                    + " • Community Clear Vote (" + r.resolveVotes + "/3)" + demoSuffix;
                         }
-                        if (dbHelper != null) {
+                        if (!alreadyVotedOnDevice && dbHelper != null) {
                             ContentValues cv = new ContentValues();
                             cv.put("report_id", id);
                             cv.put("vote_type", "RESOLVE");
@@ -426,13 +523,17 @@ public class CampusRepository {
     // FR 2.3: 仅管理员可更新工单状态并追加时间线
     public void updateReportStatus(String id, String newStatus) {
         if (!isAdmin()) return;
+        if (!"Submitted".equals(newStatus)
+                && !"Verified".equals(newStatus)
+                && !"In Progress - JPPHB".equals(newStatus)
+                && !"Resolved".equals(newStatus)) return;
         executorService.execute(() -> {
             synchronized (reportsList) {
                 String nowTime = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
                 for (HazardReport r : reportsList) {
                     if (r.id.equals(id)) {
                         r.status = newStatus;
-                        r.timeline = r.timeline + "\n" + nowTime + " • Status updated to [" + newStatus + "] by JPPHB Admin";
+                        r.timeline = r.timeline + "\n" + nowTime + " • Local demo status updated to [" + newStatus + "]";
                         insertOrUpdateReportDb(r);
                         break;
                     }
@@ -442,7 +543,66 @@ public class CampusRepository {
         });
     }
 
-    // FR 3.1: 真·图像像素特征分析 + 离线规则降级
+    // FR 3.1: 尝试将 Bitmap 上传至 FastAPI /api/v1/triage 进行服务端视觉分类，离线时返回 null 交由端侧 HSV 引擎处理
+    private TriageResult tryBackendVisionTriage(Bitmap bitmap, String hintType, String userTitle) {
+        java.net.HttpURLConnection conn = null;
+        try {
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos);
+            byte[] jpegBytes = baos.toByteArray();
+
+            String boundary = "----UMClearFlowBoundary" + System.currentTimeMillis();
+            java.net.URL url = new java.net.URL(API_BASE_URL + "api/v1/triage");
+            conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(1800);
+            conn.setReadTimeout(2500);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+
+            try (java.io.DataOutputStream dos = new java.io.DataOutputStream(conn.getOutputStream())) {
+                // hint_type field
+                dos.writeBytes("--" + boundary + "\r\n");
+                dos.writeBytes("Content-Disposition: form-data; name=\"hint_type\"\r\n\r\n");
+                dos.write((hintType != null ? hintType : "").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                dos.writeBytes("\r\n");
+                // title field
+                dos.writeBytes("--" + boundary + "\r\n");
+                dos.writeBytes("Content-Disposition: form-data; name=\"title\"\r\n\r\n");
+                dos.write((userTitle != null ? userTitle : "").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                dos.writeBytes("\r\n");
+                // image file field
+                dos.writeBytes("--" + boundary + "\r\n");
+                dos.writeBytes("Content-Disposition: form-data; name=\"image\"; filename=\"hazard.jpg\"\r\n");
+                dos.writeBytes("Content-Type: image/jpeg\r\n\r\n");
+                dos.write(jpegBytes);
+                dos.writeBytes("\r\n--" + boundary + "--\r\n");
+                dos.flush();
+            }
+
+            if (conn.getResponseCode() == 200) {
+                try (java.io.BufferedReader br = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(conn.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = br.readLine()) != null) sb.append(line);
+                    org.json.JSONObject json = new org.json.JSONObject(sb.toString());
+                    String detected = json.optString("hazard_type", hintType);
+                    String sev = json.optString("severity", "Medium");
+                    double conf = json.optDouble("confidence", 0.88);
+                    String note = json.optString("note", "[FastAPI Vision Server]") + " • Auto-classified: " + detected;
+                    return new TriageResult(sev, conf, note, detected);
+                }
+            }
+        } catch (Exception ignored) {
+            // FastAPI 未启动或网络不可达，无缝回退到端侧 HSV 图像特征引擎
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+        return null;
+    }
+
+    // FR 3.1: 启发式图像像素特征分诊 (Heuristic HSV Triage) + 离线规则降级
     public TriageResult runVisionTriage(Bitmap bitmap, int hazardTypeIndex, String userTitle) {
         String[] types = {"Flash Flood", "Blocked Drain", "Fallen Tree", "Slope / Landslide"};
         String selectedType = (hazardTypeIndex >= 0 && hazardTypeIndex < types.length)
@@ -508,29 +668,47 @@ public class CampusRepository {
         String severity;
         double confidence;
         String detailNote;
+        String autoDetectedType = selectedType;
+        String lowerTitle = userTitle != null ? userTitle.toLowerCase(Locale.ROOT) : "";
+        boolean offMain = true;
+        try { offMain = android.os.Looper.myLooper() != android.os.Looper.getMainLooper(); } catch (RuntimeException ignored) {}
+        if (offMain) {
+            TriageResult remote = tryBackendVisionTriage(bitmap, selectedType, userTitle);
+            if (remote != null) return remote;
+        }
+        if (lowerTitle.contains("tree") || lowerTitle.contains("branch") || greenRatio > 0.28) {
+            autoDetectedType = "Fallen Tree";
+        } else if (lowerTitle.contains("drain") || lowerTitle.contains("grate") || lowerTitle.contains("culvert")
+                || (darkRatio > 0.30 && muddyRatio < 0.22)) {
+            autoDetectedType = "Blocked Drain";
+        } else if (lowerTitle.contains("slope") || lowerTitle.contains("landslide")) {
+            autoDetectedType = "Slope / Landslide";
+        } else if (muddyRatio + reflectRatio > 0.32) {
+            autoDetectedType = "Flash Flood";
+        }
 
         if (hazardTypeIndex == 0 || muddyRatio + reflectRatio > 0.42) {
             double waterScore = muddyRatio * 1.4 + reflectRatio * 0.8;
             severity = (waterScore > 0.35 || latestRainfallMm > 5.0) ? "Critical" : "Medium";
             confidence = Math.min(0.96, 0.74 + waterScore * 0.35);
             detailNote = String.format(Locale.US,
-                    "[On-Device Vision HSV Scan] Turbid water/reflection coverage: %.0f%% | Dark depth ratio: %.0f%%.",
+                    "[On-Device Heuristic HSV Scan] Turbid water/reflection coverage: %.0f%% | Dark depth ratio: %.0f%%.",
                     (muddyRatio + reflectRatio) * 100, darkRatio * 100);
         } else if (hazardTypeIndex == 2 || greenRatio > 0.28) {
             severity = (greenRatio > 0.38 || darkRatio > 0.30) ? "Critical" : "Medium";
             confidence = Math.min(0.94, 0.72 + greenRatio * 0.40);
             detailNote = String.format(Locale.US,
-                    "[On-Device Vision HSV Scan] Canopy/foliage obstruction ratio: %.0f%% | Shadow density: %.0f%%.",
+                    "[On-Device Heuristic HSV Scan] Canopy/foliage obstruction ratio: %.0f%% | Shadow density: %.0f%%.",
                     greenRatio * 100, darkRatio * 100);
         } else {
             severity = darkRatio > 0.32 ? "Critical" : "Medium";
             confidence = Math.min(0.92, 0.70 + (darkRatio + muddyRatio) * 0.35);
             detailNote = String.format(Locale.US,
-                    "[On-Device Vision HSV Scan] Drain occlusion/soil ratio: %.0f%% | Surface contrast verified.",
+                    "[On-Device Heuristic HSV Scan] Drain occlusion/soil ratio: %.0f%% | Surface contrast verified.",
                     (darkRatio + muddyRatio) * 100);
         }
 
-        return new TriageResult(severity, confidence, detailNote, selectedType);
+        return new TriageResult(severity, confidence, detailNote + " • Auto-classified: " + autoDetectedType, autoDetectedType);
     }
 
     // 保留离线规则分诊作为无照片时的降级方案
@@ -575,6 +753,8 @@ public class CampusRepository {
     // FR 4.1: 官方校园应急避难所列表
     public List<ShelterInfo> getCampusShelters() {
         List<ShelterInfo> list = new ArrayList<>();
+        list.add(new ShelterInfo("KK8 (Kolej Kediaman Kinabalu Safe Zone)", 3.1302, 101.6485,
+                "North-West Residential College High-Ground Assembly • Covered Walkway Access"));
         list.add(new ShelterInfo("Dewan Tunku Canselor (DTC Shelter)", 3.1219, 101.6570,
                 "Primary Elevated Assembly Hall • Capacity: 1,500 • Emergency Generator & First Aid"));
         list.add(new ShelterInfo("Perdanasiswa Complex (KPS Shelter)", 3.1235, 101.6552,
@@ -583,6 +763,8 @@ public class CampusRepository {
                 "East Campus Evacuation Point • Capacity: 1,200 • Accessible via High Ground"));
         list.add(new ShelterInfo("FCSIT Block B Upper Concourse", 3.1284, 101.6502,
                 "North Zone Temporary Refuge • Capacity: 400 • 2nd Floor Flood-Safe Zone"));
+        list.add(new ShelterInfo("KK12 (Kolej Kediaman Raja Dr. Nazrin Shah Hall)", 3.1338, 101.6518,
+                "North Residential Relief Point • Capacity: 600 • Shuttle Bus Hub"));
         return list;
     }
 
@@ -636,7 +818,10 @@ public class CampusRepository {
             int rank = 1;
             for (Map.Entry<String, Integer> entry : sorted) {
                 int crit = criticalByZone.getOrDefault(entry.getKey(), 0);
-                sb.append(rank++).append(". ").append(entry.getKey())
+                int filled = Math.min(8, Math.max(1, entry.getValue() * 2));
+                StringBuilder bar = new StringBuilder();
+                for (int b = 0; b < 8; b++) bar.append(b < filled ? '█' : '░');
+                sb.append(rank++).append(". [").append(bar).append("] ").append(entry.getKey())
                         .append(" — ").append(entry.getValue()).append(" reports (")
                         .append(crit).append(" Critical)\n");
                 if (rank > 5) break;
@@ -649,6 +834,7 @@ public class CampusRepository {
 
     // FR 5.2: 导出真实 CSV 报告
     public String exportReportsToCsv() {
+        if (appContext != null && !isAdmin()) return "";
         synchronized (reportsList) {
             StringBuilder csv = new StringBuilder();
             csv.append("ID,Title,HazardType,Severity,Status,Location,Latitude,Longitude,Upvotes,ResolveVotes,ReporterEmail,Timestamp\n");
@@ -727,7 +913,7 @@ public class CampusRepository {
     // 内置原生 SQLiteOpenHelper 数据库
     private static class ClearFlowDbHelper extends SQLiteOpenHelper {
         private static final String DB_NAME = "um_clearflow.db";
-        private static final int DB_VERSION = 2;
+        private static final int DB_VERSION = 3;
 
         ClearFlowDbHelper(Context context) {
             super(context, DB_NAME, null, DB_VERSION);
@@ -751,7 +937,8 @@ public class CampusRepository {
                     "aiConfidence REAL, " +
                     "aiTriageNote TEXT, " +
                     "reporterEmail TEXT, " +
-                    "timeline TEXT)");
+                    "timeline TEXT, " +
+                    "photoUri TEXT DEFAULT '')");
 
             db.execSQL("CREATE TABLE IF NOT EXISTS user_votes (" +
                     "report_id TEXT, " +
@@ -761,9 +948,15 @@ public class CampusRepository {
 
         @Override
         public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-            db.execSQL("DROP TABLE IF EXISTS hazard_reports");
-            db.execSQL("DROP TABLE IF EXISTS user_votes");
-            onCreate(db);
+            if (oldVersion < 2) {
+                try { db.execSQL("ALTER TABLE hazard_reports ADD COLUMN resolveVotes INTEGER DEFAULT 0"); } catch (Exception ignored) {}
+                try { db.execSQL("ALTER TABLE hazard_reports ADD COLUMN reporterEmail TEXT DEFAULT 'demo.student@siswa.um.edu.my'"); } catch (Exception ignored) {}
+                try { db.execSQL("ALTER TABLE hazard_reports ADD COLUMN timeline TEXT DEFAULT ''"); } catch (Exception ignored) {}
+            }
+            if (oldVersion < 3) {
+                try { db.execSQL("ALTER TABLE hazard_reports ADD COLUMN photoUri TEXT DEFAULT ''"); } catch (Exception ignored) {}
+            }
+            onCreate(db); // CREATE TABLE IF NOT EXISTS preserves existing data
         }
     }
 }

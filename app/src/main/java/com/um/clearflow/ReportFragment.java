@@ -8,44 +8,51 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.widget.AdapterView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.core.location.LocationManagerCompat;
+import androidx.core.os.CancellationSignal;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.UUID;
 
 public class ReportFragment extends Fragment {
 
     private static final Pattern COORD_PATTERN = Pattern.compile("\\(([-\\d.]+),\\s*([-\\d.]+)\\)");
+    private static final long MAX_REPORT_LOCATION_AGE_MS = 10 * 60 * 1000L;
+    private static final long LIVE_GPS_TIMEOUT_MS = 6000L;
 
     private ReportViewModel viewModel;
     private Spinner spinnerLocation;
@@ -55,33 +62,47 @@ public class ReportFragment extends Fragment {
     private TextView tvGpsStatus;
     private TextView tvTriageResult;
     private ImageView ivPhotoPreview;
-    private LinearLayout reportsListContainer;
+    private RecyclerView reportsListContainer;
+    private ReportAdapter reportAdapter;
+    private Button btnSubmit;
+    private Button btnPhoto;
+    private Button btnTriage;
+    private Button btnTabAll;
+    private Button btnTabMine;
+    private boolean submitAfterTriage = false;
+    private long latestTriageRequestId = 0L;
+    private long pendingSubmitRequestId = 0L;
+    private long inFlightTriageRequestId = 0L;
+    private String inFlightTriageInputKey = null;
+    private String latestTriageInputKey = null;
 
     private Bitmap capturedBitmap = null;
     private Double realGpsLat = null;
     private Double realGpsLon = null;
     private CampusRepository.TriageResult latestTriage = null;
+    private CancellationSignal gpsCancelSignal = null;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    @SuppressWarnings("deprecation")
     private final ActivityResultLauncher<Intent> cameraLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
                 if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
                     Bundle extras = result.getData().getExtras();
                     if (extras != null && extras.get("data") instanceof Bitmap) {
                         capturedBitmap = (Bitmap) extras.get("data");
+                        viewModel.setCapturedPhoto(capturedBitmap);
                         ivPhotoPreview.setImageBitmap(capturedBitmap);
                         ivPhotoPreview.setVisibility(View.VISIBLE);
-                        // 拍完照片自动触发一次真实 Bitmap HSV 视觉分诊
-                        viewModel.performVisionTriage(
-                                capturedBitmap,
-                                spinnerHazardType.getSelectedItemPosition(),
-                                etTitle.getText().toString()
-                        );
+                        // Analyze the current photo and form values without overriding the user's category.
+                        requestTriage(false);
                     }
                 }
             });
 
-    private final ActivityResultLauncher<String> gpsPermLauncher =
-            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+    private final ActivityResultLauncher<String[]> gpsPermLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
+                boolean granted = Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_FINE_LOCATION))
+                        || Boolean.TRUE.equals(result.get(Manifest.permission.ACCESS_COARSE_LOCATION));
                 if (granted) {
                     fetchDeviceGpsCoordinates();
                 } else {
@@ -104,6 +125,32 @@ public class ReportFragment extends Fragment {
         tvTriageResult = view.findViewById(R.id.tv_triage_result);
         ivPhotoPreview = view.findViewById(R.id.iv_photo_preview);
         reportsListContainer = view.findViewById(R.id.reports_list_container);
+
+        reportAdapter = new ReportAdapter(new ReportAdapter.Actions() {
+            @Override
+            public void onUpvote(HazardReport r) {
+                viewModel.upvote(r.id);
+            }
+
+            @Override
+            public void onVoteResolve(HazardReport r) {
+                viewModel.voteResolve(r.id);
+            }
+
+            @Override
+            public void onAdminStatus(HazardReport r) {
+                showStatusUpdateDialog(r);
+            }
+        });
+        reportsListContainer.setLayoutManager(new LinearLayoutManager(requireContext()));
+        reportsListContainer.setAdapter(reportAdapter);
+
+        // Restore photo captured before a rotation / view recreation
+        capturedBitmap = viewModel.getCapturedPhoto();
+        if (capturedBitmap != null) {
+            ivPhotoPreview.setImageBitmap(capturedBitmap);
+            ivPhotoPreview.setVisibility(View.VISIBLE);
+        }
 
         setupSpinners();
         setupButtons(view);
@@ -148,18 +195,22 @@ public class ReportFragment extends Fragment {
 
     private void setupButtons(View view) {
         Button btnGps = view.findViewById(R.id.btn_acquire_gps);
-        Button btnPhoto = view.findViewById(R.id.btn_capture_photo);
-        Button btnTriage = view.findViewById(R.id.btn_ai_triage);
-        Button btnSubmit = view.findViewById(R.id.btn_submit_report);
-        Button btnTabAll = view.findViewById(R.id.btn_tab_all_reports);
-        Button btnTabMine = view.findViewById(R.id.btn_tab_my_reports);
+        btnPhoto = view.findViewById(R.id.btn_capture_photo);
+        btnTriage = view.findViewById(R.id.btn_ai_triage);
+        btnSubmit = view.findViewById(R.id.btn_submit_report);
+        btnTabAll = view.findViewById(R.id.btn_tab_all_reports);
+        btnTabMine = view.findViewById(R.id.btn_tab_my_reports);
 
         btnGps.setOnClickListener(v -> {
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED
+                    || ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION)
                     == PackageManager.PERMISSION_GRANTED) {
                 fetchDeviceGpsCoordinates();
             } else {
-                gpsPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION);
+                gpsPermLauncher.launch(new String[]{
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION});
             }
         });
 
@@ -172,11 +223,7 @@ public class ReportFragment extends Fragment {
             }
         });
 
-        btnTriage.setOnClickListener(v -> viewModel.performVisionTriage(
-                capturedBitmap,
-                spinnerHazardType.getSelectedItemPosition(),
-                etTitle.getText().toString()
-        ));
+        btnTriage.setOnClickListener(v -> requestTriage(false));
 
         btnSubmit.setOnClickListener(v -> handleReportSubmission());
 
@@ -189,35 +236,197 @@ public class ReportFragment extends Fragment {
         LocationManager lm = (LocationManager) requireContext().getSystemService(Context.LOCATION_SERVICE);
         Location loc = null;
         if (lm != null) {
-            loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-            if (loc == null) {
-                loc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            // Pick freshest fix across providers; a missing provider throws IllegalArgumentException
+            for (String p : new String[]{LocationManager.GPS_PROVIDER,
+                    LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER}) {
+                try {
+                    Location l = lm.getLastKnownLocation(p);
+                    if (l != null && (loc == null || l.getTime() > loc.getTime())) loc = l;
+                } catch (SecurityException | IllegalArgumentException ignored) {}
             }
         }
-        if (loc != null) {
-            realGpsLat = loc.getLatitude();
-            realGpsLon = loc.getLongitude();
-            tvGpsStatus.setText(String.format(Locale.US, "✅ Real GPS locked: (%.5f, %.5f)", realGpsLat, realGpsLon));
+        boolean staleFix = loc != null
+                && (System.currentTimeMillis() - loc.getTime() > MAX_REPORT_LOCATION_AGE_MS);
+        if (loc != null && !staleFix) {
+            applyGpsFix(loc, false);
+            return;
+        }
+
+        // Cached fix is null or >10 minutes old: actively request a real-time fix from hardware/network provider
+        if (lm != null) {
+            String activeProvider = null;
+            for (String p : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+                try {
+                    if (lm.isProviderEnabled(p)) {
+                        activeProvider = p;
+                        break;
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (activeProvider != null) {
+                if (gpsCancelSignal != null) {
+                    gpsCancelSignal.cancel();
+                }
+                final CancellationSignal signal = new CancellationSignal();
+                gpsCancelSignal = signal;
+                final boolean wasStale = staleFix;
+                tvGpsStatus.setText("📡 Acquiring live GPS fix...");
+
+                Runnable timeoutTask = () -> {
+                    if (!signal.isCanceled()) {
+                        signal.cancel();
+                        if (isAdded() && tvGpsStatus != null) {
+                            realGpsLat = null;
+                            realGpsLon = null;
+                            tvGpsStatus.setText(wasStale
+                                    ? "⚠️ Location fix is over 10 minutes old & live GPS timed out; using landmark coordinates."
+                                    : "⚠️ Indoor/No live GPS signal; fallback to selected landmark coordinates.");
+                        }
+                    }
+                };
+                mainHandler.postDelayed(timeoutTask, LIVE_GPS_TIMEOUT_MS);
+
+                try {
+                    LocationManagerCompat.getCurrentLocation(
+                            lm,
+                            activeProvider,
+                            signal,
+                            ContextCompat.getMainExecutor(requireContext()),
+                            freshLocation -> {
+                                mainHandler.removeCallbacks(timeoutTask);
+                                if (!isAdded() || tvGpsStatus == null) return;
+                                if (freshLocation != null) {
+                                    applyGpsFix(freshLocation, true);
+                                } else {
+                                    realGpsLat = null;
+                                    realGpsLon = null;
+                                    tvGpsStatus.setText(wasStale
+                                            ? "⚠️ Location fix is over 10 minutes old; using selected landmark coordinates."
+                                            : "⚠️ Indoor/No GPS signal; fallback to selected landmark coordinates.");
+                                }
+                            }
+                    );
+                    return;
+                } catch (SecurityException | IllegalArgumentException ignored) {
+                    mainHandler.removeCallbacks(timeoutTask);
+                }
+            }
+        }
+
+        realGpsLat = null;
+        realGpsLon = null;
+        tvGpsStatus.setText(staleFix
+                ? "⚠️ Location fix is over 10 minutes old; using selected landmark coordinates."
+                : "⚠️ Indoor/No GPS signal; fallback to selected landmark coordinates.");
+    }
+
+    private void applyGpsFix(@NonNull Location loc, boolean isLiveFix) {
+        realGpsLat = loc.getLatitude();
+        realGpsLon = loc.getLongitude();
+        long ageSeconds = Math.max(0L, (System.currentTimeMillis() - loc.getTime()) / 1000L);
+        if (isLiveFix) {
+            tvGpsStatus.setText(String.format(Locale.US,
+                    "✅ Live GPS fix acquired: (%.5f, %.5f)", realGpsLat, realGpsLon));
         } else {
-            realGpsLat = null;
-            realGpsLon = null;
-            tvGpsStatus.setText("⚠️ Indoor/No GPS signal; fallback to selected landmark coordinates.");
+            tvGpsStatus.setText(String.format(Locale.US,
+                    "✅ Last known location (%ds old): (%.5f, %.5f)", ageSeconds, realGpsLat, realGpsLon));
         }
     }
 
     private void observeData() {
         viewModel.getTriageResult().observe(getViewLifecycleOwner(), res -> {
-            if (res != null) {
-                latestTriage = res;
+            if (res != null && res.requestId == inFlightTriageRequestId) {
+                inFlightTriageRequestId = 0L;
+                inFlightTriageInputKey = null;
+            }
+            if (res == null || res.requestId != latestTriageRequestId) return;
+            if (!res.inputKey.equals(currentTriageInputKey())) {
+                latestTriage = null;
+                latestTriageInputKey = null;
+                tvTriageResult.setText("Form changed during analysis. Review the form and submit again.");
+                if (submitAfterTriage && pendingSubmitRequestId == res.requestId) {
+                    finishPendingSubmission();
+                    Toast.makeText(getContext(), "Form changed; please submit again.", Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
+
+            latestTriage = res.result;
+            latestTriageInputKey = res.inputKey;
+            if (res.result != null) {
                 tvTriageResult.setText(String.format(Locale.US,
-                        "Severity: %s (Confidence: %.0f%%)\n%s",
-                        res.severity, res.confidence * 100, res.note));
+                        "Suggested type: %s\nSeverity: %s (Confidence: %.0f%%)\n%s",
+                        res.result.detectedType, res.result.severity,
+                        res.result.confidence * 100, res.result.note));
+                if (submitAfterTriage && pendingSubmitRequestId == res.requestId) {
+                    finishPendingSubmission();
+                    handleReportSubmission();
+                }
             }
         });
 
         viewModel.getReports().observe(getViewLifecycleOwner(), reports -> refreshReportList());
         viewModel.getUserRole().observe(getViewLifecycleOwner(), role -> refreshReportList());
-        viewModel.getShowOnlyMyReports().observe(getViewLifecycleOwner(), onlyMine -> refreshReportList());
+        viewModel.getShowOnlyMyReports().observe(getViewLifecycleOwner(), onlyMine -> {
+            updateTabFilterHighlight(Boolean.TRUE.equals(onlyMine));
+            refreshReportList();
+        });
+    }
+
+    private void updateTabFilterHighlight(boolean onlyMine) {
+        if (btnTabAll != null && btnTabMine != null) {
+            btnTabAll.setAlpha(onlyMine ? 0.55f : 1.0f);
+            btnTabMine.setAlpha(onlyMine ? 1.0f : 0.55f);
+        }
+    }
+
+    private String currentTriageInputKey() {
+        String title = etTitle.getText().toString().trim();
+        int hazardType = spinnerHazardType.getSelectedItemPosition();
+        int photoIdentity = capturedBitmap != null ? System.identityHashCode(capturedBitmap) : 0;
+        return title.length() + ":" + title + "|" + hazardType + "|" + photoIdentity;
+    }
+
+    private void requestTriage(boolean submitWhenComplete) {
+        String inputKey = currentTriageInputKey();
+        if (inFlightTriageRequestId != 0L && inputKey.equals(inFlightTriageInputKey)) {
+            if (submitWhenComplete) {
+                submitAfterTriage = true;
+                pendingSubmitRequestId = inFlightTriageRequestId;
+                btnSubmit.setEnabled(false);
+                if (btnPhoto != null) btnPhoto.setEnabled(false);
+                if (btnTriage != null) btnTriage.setEnabled(false);
+            }
+            return;
+        }
+        latestTriage = null;
+        latestTriageInputKey = null;
+        long requestId = viewModel.performVisionTriage(
+                capturedBitmap,
+                spinnerHazardType.getSelectedItemPosition(),
+                etTitle.getText().toString().trim(),
+                inputKey);
+        latestTriageRequestId = requestId;
+        inFlightTriageRequestId = requestId;
+        inFlightTriageInputKey = inputKey;
+        if (submitWhenComplete) {
+            submitAfterTriage = true;
+            pendingSubmitRequestId = requestId;
+            btnSubmit.setEnabled(false);
+            if (btnPhoto != null) btnPhoto.setEnabled(false);
+            if (btnTriage != null) btnTriage.setEnabled(false);
+            tvTriageResult.setText("Analyzing the current form in the background…");
+        } else {
+            tvTriageResult.setText("Analyzing the current form in the background…");
+        }
+    }
+
+    private void finishPendingSubmission() {
+        submitAfterTriage = false;
+        pendingSubmitRequestId = 0L;
+        if (btnSubmit != null) btnSubmit.setEnabled(true);
+        if (btnPhoto != null) btnPhoto.setEnabled(true);
+        if (btnTriage != null) btnTriage.setEnabled(true);
     }
 
     private void handleReportSubmission() {
@@ -234,7 +443,7 @@ public class ReportFragment extends Fragment {
         String locationStr = spinnerLocation.getSelectedItem().toString();
         String hazardType = spinnerHazardType.getSelectedItem().toString();
 
-        // 修复缺陷4：优先使用真实 GPS 坐标；若未获取 GPS 则正则解析所选地标真实坐标，绝不使用 Math.random()
+        // 优先使用真实 GPS 坐标；若未获取 GPS 则正则解析所选地标真实坐标，绝不使用 Math.random()
         double lat = 3.1281, lon = 101.6505;
         if (realGpsLat != null && realGpsLon != null) {
             lat = realGpsLat;
@@ -247,9 +456,10 @@ public class ReportFragment extends Fragment {
             }
         }
 
-        if (latestTriage == null || !hazardType.equalsIgnoreCase(latestTriage.detectedType)) {
-            latestTriage = CampusRepository.getInstance().runVisionTriage(
-                    capturedBitmap, spinnerHazardType.getSelectedItemPosition(), title);
+        String currentInputKey = currentTriageInputKey();
+        if (latestTriage == null || !currentInputKey.equals(latestTriageInputKey)) {
+            requestTriage(true);
+            return;
         }
 
         String id = "CF-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
@@ -257,14 +467,19 @@ public class ReportFragment extends Fragment {
         String myEmail = CampusRepository.getInstance()
                 .getProfileField("siswa_email", "demo.student@siswa.um.edu.my");
         String timeline = timeStr + " • Submitted by " + myEmail
-                + (capturedBitmap != null ? " (With Photo Vision Scan)" : " (Text Report)");
+                + (capturedBitmap != null ? " (With Rule-Based Photo Estimate)" : " (Text Report)");
+
+        String photoUri = "";
+        if (capturedBitmap != null) {
+            photoUri = CampusRepository.getInstance().saveReportPhotoToInternalStorage(id, capturedBitmap);
+        }
 
         HazardReport newReport = new HazardReport(
                 id, title, desc, locationStr, hazardType,
                 latestTriage.severity, "Submitted",
                 lat, lon, timeStr,
                 1, 0, latestTriage.confidence, latestTriage.note,
-                myEmail, timeline
+                myEmail, timeline, photoUri
         );
 
         viewModel.submitNewReport(newReport);
@@ -272,111 +487,32 @@ public class ReportFragment extends Fragment {
         etTitle.setText("");
         etDesc.setText("");
         capturedBitmap = null;
+        viewModel.setCapturedPhoto(null);
         latestTriage = null;
         ivPhotoPreview.setVisibility(View.GONE);
-        tvTriageResult.setText("✅ Report saved to SQLite & synced to Map! Note: Duplicates within 50m auto-merge.");
+        tvTriageResult.setText("Report queued for local save. This version does not send it to JPPHB or other users. Reports of the same type within 50 m may be merged locally.");
         realGpsLat = null;
         realGpsLon = null;
         tvGpsStatus.setText("Using landmark coordinates");
-        viewModel.clearTriage();   // 见第 2 项
-        Toast.makeText(getContext(), "Hazard report submitted!", Toast.LENGTH_SHORT).show();
+        viewModel.clearTriage();
+        Toast.makeText(getContext(), "Report queued for local saving on this device.", Toast.LENGTH_SHORT).show();
     }
 
     private void refreshReportList() {
-        if (reportsListContainer == null || getContext() == null) return;
-        reportsListContainer.removeAllViews();
-
+        if (reportAdapter == null) return;
         List<HazardReport> list = viewModel.getReports().getValue();
         if (list == null) return;
 
         boolean onlyMine = Boolean.TRUE.equals(viewModel.getShowOnlyMyReports().getValue());
         String myEmail = CampusRepository.getInstance()
                 .getProfileField("siswa_email", "demo.student@siswa.um.edu.my");
-        boolean isAdmin = CampusRepository.getInstance().isAdmin();
 
-        int pad = dpToPx(12);
-        int marginBottom = dpToPx(10);
-
+        List<HazardReport> visible = new ArrayList<>(list.size());
         for (HazardReport r : list) {
-            if (onlyMine && !myEmail.equalsIgnoreCase(r.reporterEmail)) {
-                continue;
-            }
-
-            LinearLayout card = new LinearLayout(getContext());
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackgroundColor(Color.WHITE);
-            card.setPadding(pad, pad, pad, pad);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.setMargins(0, 0, 0, marginBottom);
-            card.setLayoutParams(lp);
-            card.setElevation(dpToPx(2));
-
-            TextView tvHeader = new TextView(getContext());
-            tvHeader.setText(String.format(Locale.US, "[%s] %s • %s", r.severity, r.title, r.status));
-            tvHeader.setTextSize(14f);
-            tvHeader.setTextColor("Critical".equalsIgnoreCase(r.severity)
-                    ? Color.rgb(185, 28, 28) : Color.rgb(15, 23, 42));
-            tvHeader.setTypeface(null, android.graphics.Typeface.BOLD);
-            card.addView(tvHeader);
-
-            TextView tvMeta = new TextView(getContext());
-            tvMeta.setText(String.format(Locale.US, "📍 %s (%.4f, %.4f)\n🕒 %s | Reporter: %s",
-                    r.locationName, r.latitude, r.longitude, r.timestamp, r.reporterEmail));
-            tvMeta.setTextSize(11f);
-            tvMeta.setTextColor(Color.rgb(100, 116, 139));
-            card.addView(tvMeta);
-
-            TextView tvBody = new TextView(getContext());
-            tvBody.setText(r.description + "\n🤖 " + r.aiTriageNote);
-            tvBody.setTextSize(12f);
-            tvBody.setTextColor(Color.rgb(51, 65, 85));
-            tvBody.setPadding(0, dpToPx(4), 0, dpToPx(4));
-            card.addView(tvBody);
-
-            // FR 2.3 工单时间线展示
-            TextView tvTimeline = new TextView(getContext());
-            tvTimeline.setText("📋 Timeline:\n" + r.timeline);
-            tvTimeline.setTextSize(11f);
-            tvTimeline.setTextColor(Color.rgb(71, 85, 105));
-            tvTimeline.setBackgroundColor(Color.rgb(241, 245, 249));
-            tvTimeline.setPadding(dpToPx(8), dpToPx(6), dpToPx(8), dpToPx(6));
-            card.addView(tvTimeline);
-
-            // 按钮操作行：Upvote (一人一票) + Verify Resolved (满3票解除) + 仅管理员可见的 JPPHB 状态修改
-            LinearLayout actionRow = new LinearLayout(getContext());
-            actionRow.setOrientation(LinearLayout.HORIZONTAL);
-            actionRow.setPadding(0, dpToPx(6), 0, 0);
-
-            Button btnUpvote = new Button(getContext());
-            boolean alreadyUpvoted = CampusRepository.getInstance().hasUpvoted(r.id);
-            btnUpvote.setText(alreadyUpvoted ? "👍 Upvoted (" + r.upvotes + ")" : "👍 Upvote (" + r.upvotes + ")");
-            btnUpvote.setEnabled(!alreadyUpvoted);
-            btnUpvote.setTextSize(11f);
-            btnUpvote.setOnClickListener(v -> viewModel.upvote(r.id));
-            actionRow.addView(btnUpvote);
-
-            Button btnResolveVote = new Button(getContext());
-            boolean alreadyResolvedVote = CampusRepository.getInstance().hasVotedResolve(r.id);
-            btnResolveVote.setText("Resolved".equalsIgnoreCase(r.status)
-                    ? "✅ Resolved"
-                    : "🌤️ Clear? (" + r.resolveVotes + "/3)");
-            btnResolveVote.setEnabled(!alreadyResolvedVote && !"Resolved".equalsIgnoreCase(r.status));
-            btnResolveVote.setTextSize(11f);
-            btnResolveVote.setOnClickListener(v -> viewModel.voteResolve(r.id));
-            actionRow.addView(btnResolveVote);
-
-            // 修复缺陷6：严格检查管理员权限，学生视角彻底隐藏 JPPHB Status 修改按钮
-            Button btnAdminStatus = new Button(getContext());
-            btnAdminStatus.setText("⚙️ JPPHB Status");
-            btnAdminStatus.setTextSize(11f);
-            btnAdminStatus.setVisibility(isAdmin ? View.VISIBLE : View.GONE);
-            btnAdminStatus.setOnClickListener(v -> showStatusUpdateDialog(r));
-            actionRow.addView(btnAdminStatus);
-
-            card.addView(actionRow);
-            reportsListContainer.addView(card);
+            if (!onlyMine || myEmail.equalsIgnoreCase(r.reporterEmail)) visible.add(r);
         }
+        reportAdapter.setAdmin(CampusRepository.getInstance().isAdmin());
+        reportAdapter.submitList(visible);
     }
 
     private void showStatusUpdateDialog(HazardReport report) {
@@ -386,10 +522,20 @@ public class ReportFragment extends Fragment {
         }
         String[] statuses = {"Submitted", "Verified", "In Progress - JPPHB", "Resolved"};
         new AlertDialog.Builder(requireContext())
-                .setTitle("Update Ticket Status (" + report.id + ")")
+                .setTitle("Update Local Demo Status (" + report.id + ")")
                 .setItems(statuses, (dialog, which) -> viewModel.updateStatus(report.id, statuses[which]))
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (gpsCancelSignal != null) {
+            gpsCancelSignal.cancel();
+            gpsCancelSignal = null;
+        }
+        mainHandler.removeCallbacksAndMessages(null);
+        super.onDestroyView();
     }
 
     private int dpToPx(int dp) {

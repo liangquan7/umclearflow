@@ -1,17 +1,9 @@
 package com.um.clearflow;
 
-import android.Manifest;
-import android.annotation.SuppressLint;
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
+import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.location.Location;
-import android.location.LocationManager;
-import android.net.Uri;
 import android.os.Bundle;
-import android.preference.PreferenceManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -22,10 +14,7 @@ import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
@@ -55,6 +44,8 @@ public class MapFragment extends Fragment {
     private LinearLayout layoutRouteSelector;
     private Spinner spinnerOrigin;
     private Spinner spinnerDestination;
+    private Button btnAll;
+    private Button btnCritical;
 
     private final String[] originNames = {
             "Pantai Gate / Lingkungan Budi",
@@ -74,12 +65,13 @@ public class MapFragment extends Fragment {
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         Context ctx = requireContext().getApplicationContext();
-        Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx));
+        SharedPreferences osmPrefs = ctx.getSharedPreferences(ctx.getPackageName() + "_preferences", Context.MODE_PRIVATE);
+        Configuration.getInstance().load(ctx, osmPrefs);
         Configuration.getInstance().setUserAgentValue(ctx.getPackageName());
 
         View view = inflater.inflate(R.layout.fragment_map, container, false);
 
-        // 修复缺陷1：绑定在 requireActivity() 作用域，切换 Tab 不丢失地图筛选与路由状态
+        // 绑定在 requireActivity() 作用域，切换 Tab 不丢失地图筛选与路由状态
         viewModel = new ViewModelProvider(requireActivity()).get(MapViewModel.class);
 
         tvMapSummary = view.findViewById(R.id.tv_map_summary);
@@ -118,6 +110,11 @@ public class MapFragment extends Fragment {
         ArrayAdapter<String> destAdapter = new ArrayAdapter<>(
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, destNames);
         spinnerDestination.setAdapter(destAdapter);
+        // Restore selections from the activity-scoped ViewModel (survives rotation / view recreation)
+        Integer savedO = viewModel.getOriginIndex().getValue();
+        Integer savedD = viewModel.getDestinationIndex().getValue();
+        if (savedO != null && savedO >= 0 && savedO < originNames.length) spinnerOrigin.setSelection(savedO, false);
+        if (savedD != null && savedD >= 0 && savedD < destNames.size()) spinnerDestination.setSelection(savedD, false);
 
         AdapterView.OnItemSelectedListener routeChangeListener = new AdapterView.OnItemSelectedListener() {
             @Override
@@ -135,10 +132,13 @@ public class MapFragment extends Fragment {
     }
 
     private void setupControls(View view) {
-        Button btnAll = view.findViewById(R.id.btn_filter_all);
-        Button btnCritical = view.findViewById(R.id.btn_filter_critical);
+        btnAll = view.findViewById(R.id.btn_filter_all);
+        btnCritical = view.findViewById(R.id.btn_filter_critical);
         CheckBox cbShelters = view.findViewById(R.id.cb_show_shelters);
         CheckBox cbRoute = view.findViewById(R.id.cb_evac_route);
+        // Sync checkbox state with ViewModel before attaching listeners
+        cbShelters.setChecked(Boolean.TRUE.equals(viewModel.getSheltersVisible().getValue()));
+        cbRoute.setChecked(Boolean.TRUE.equals(viewModel.getRouteEnabled().getValue()));
 
         btnAll.setOnClickListener(v -> viewModel.setFilter("All"));
         btnCritical.setOnClickListener(v -> viewModel.setFilter("Critical"));
@@ -150,12 +150,14 @@ public class MapFragment extends Fragment {
             layoutRouteSelector.setVisibility(isChecked ? View.VISIBLE : View.GONE);
             viewModel.setRouteEnabled(isChecked);
         });
-
     }
 
     private void observeViewModel() {
         viewModel.getReports().observe(getViewLifecycleOwner(), reports -> renderMapOverlays());
-        viewModel.getSelectedFilter().observe(getViewLifecycleOwner(), filter -> renderMapOverlays());
+        viewModel.getSelectedFilter().observe(getViewLifecycleOwner(), filter -> {
+            updateFilterButtonsHighlight(filter);
+            renderMapOverlays();
+        });
         viewModel.getSheltersVisible().observe(getViewLifecycleOwner(), visible -> renderMapOverlays());
         viewModel.getRouteEnabled().observe(getViewLifecycleOwner(), enabled -> {
             layoutRouteSelector.setVisibility(Boolean.TRUE.equals(enabled) ? View.VISIBLE : View.GONE);
@@ -169,6 +171,14 @@ public class MapFragment extends Fragment {
                 tvBroadcastBanner.setVisibility(View.GONE);
             }
         });
+    }
+
+    private void updateFilterButtonsHighlight(String filter) {
+        boolean criticalOnly = "Critical".equalsIgnoreCase(filter);
+        if (btnAll != null && btnCritical != null) {
+            btnAll.setAlpha(criticalOnly ? 0.55f : 1.0f);
+            btnCritical.setAlpha(criticalOnly ? 1.0f : 0.55f);
+        }
     }
 
     private void renderMapOverlays() {
@@ -185,7 +195,7 @@ public class MapFragment extends Fragment {
         int activeCount = 0;
         int criticalCount = 0;
 
-        // 1. 渲染分级热力風險圈与隐患 Marker (FR 4.1)
+        // 1. 渲染分级热力风险圈与隐患 Marker (FR 4.1)
         for (HazardReport r : allReports) {
             if ("Resolved".equalsIgnoreCase(r.status)) continue;
             if ("Critical".equalsIgnoreCase(filter) && !"Critical".equalsIgnoreCase(r.severity)) {
@@ -241,13 +251,13 @@ public class MapFragment extends Fragment {
             }
         }
 
-        // 3. 动态计算避障逃生路线 (FR 4.2: 10米线段加密 + 碰撞检测)
+        // 3. 动态计算避障逃生路线 (FR 4.2: 基于起终点几何中点与正交偏移生成候选走廊 + 10米加密碰撞检测)
         if (showRoute) {
             drawDynamicSafeRoute(allReports);
         }
 
         tvMapSummary.setText(String.format(Locale.US,
-                "Active Hazards: %d (%d Critical) • Shelters: %s",
+                "Visible Active Reports: %d (%d Critical) • Shelters: %s",
                 activeCount, criticalCount, showShelters ? "ON" : "OFF"));
 
         mapView.invalidate();
@@ -265,27 +275,28 @@ public class MapFragment extends Fragment {
         CampusRepository.ShelterInfo targetShelter = shelters.get(dIdx);
         GeoPoint end = new GeoPoint(targetShelter.lat, targetShelter.lon);
 
-        // 生成 3 条候选校园走廊路径：1. 谷地直达线  2. 西北高地绕行线  3. 东侧环路绕行线
+        double midLat = (start.getLatitude() + end.getLatitude()) / 2.0;
+        double midLon = (start.getLongitude() + end.getLongitude()) / 2.0;
+        double dLat = end.getLatitude() - start.getLatitude();
+        double dLon = end.getLongitude() - start.getLongitude();
+        double len = Math.hypot(dLat, dLon);
+        // 构造垂直于起止点连线的单位法向量（用于生成左右两侧高地绕行走廊，约偏移 180~240 米）
+        double normLat = len > 1e-5 ? -dLon / len : 0.0020;
+        double normLon = len > 1e-5 ?  dLat / len : 0.0020;
+
         List<List<GeoPoint>> candidateRoutes = new ArrayList<>();
-        // 候选1：直接谷地路径 (经过 Lingkungan Budi 主干道)
+        // 候选 0：起终点直连路径
+        candidateRoutes.add(Arrays.asList(start, new GeoPoint(midLat, midLon), end));
+        // 候选 1：向北/西侧高地偏移绕行 (~200m)
         candidateRoutes.add(Arrays.asList(
                 start,
-                new GeoPoint((start.getLatitude() + 3.1195) / 2, (start.getLongitude() + 101.6620) / 2),
-                new GeoPoint(3.1205, 101.6595),
+                new GeoPoint(midLat + normLat * 0.0020, midLon + normLon * 0.0020),
                 end
         ));
-        // 候选2：经中央高地走廊绕行 (避开谷地低洼积水区)
+        // 候选 2：向南/东侧外环偏移绕行 (~220m)
         candidateRoutes.add(Arrays.asList(
                 start,
-                new GeoPoint(3.1248, 101.6538),
-                new GeoPoint(3.1238, 101.6562),
-                end
-        ));
-        // 候选3：经外环高架步道绕行
-        candidateRoutes.add(Arrays.asList(
-                start,
-                new GeoPoint(3.1270, 101.6585),
-                new GeoPoint(3.1245, 101.6598),
+                new GeoPoint(midLat - normLat * 0.0022, midLon - normLon * 0.0022),
                 end
         ));
 
@@ -295,7 +306,7 @@ public class MapFragment extends Fragment {
 
         for (int i = 0; i < candidateRoutes.size(); i++) {
             List<GeoPoint> densified = densifyRoute(candidateRoutes.get(i), 10.0);
-            HazardReport hit = findIntersectingHazard(densified, allReports);
+            HazardReport hit = findIntersectingHazard(densified, allReports, i > 0, start, end);
             if (hit == null) {
                 chosenRoute = candidateRoutes.get(i);
                 chosenIndex = i;
@@ -313,12 +324,17 @@ public class MapFragment extends Fragment {
             mapView.getOverlays().add(routeLine);
 
             String mobilityPref = CampusRepository.getInstance()
-                    .getProfileField("mobility_pref", "Standard Walking");
+                    .getProfileField("mobility_pref", "Walking (Pedestrian / Covered Walkway)");
+            String modeNote = mobilityPref.contains("Bus") ? " [Shuttle Bus Stop: KPS High-Ground]"
+                    : (mobilityPref.contains("Driving") ? " [Vehicle Ring Road]"
+                    : (mobilityPref.contains("Cycling") ? " [Micro-mobility Lane]" : " [Covered Walkway]"));
+            mobilityPref = mobilityPref + modeNote;
             if (chosenIndex == 0) {
-                tvRouteStatus.setText("✅ Direct route is clear (" + mobilityPref + ") -> " + targetShelter.name);
+                tvRouteStatus.setText("Illustrative safe corridor estimate only; it does not confirm the path is safe or accessible. Check conditions before moving. ("
+                        + mobilityPref + ") -> " + targetShelter.name);
             } else {
-                tvRouteStatus.setText("⚠️ Direct path blocked by [" + blockedReason
-                        + "]. Auto-rerouted via Elevated Detour #" + chosenIndex + " (" + mobilityPref + ").");
+                tvRouteStatus.setText("A reported hazard intersects the direct estimate [" + blockedReason
+                        + "]. Alternate corridor #" + chosenIndex + " is illustrative only; verify route conditions and accessibility before moving.");
             }
         } else {
             // 所有候选路径均被未解决隐患封锁：明确告警，绝不硬画假安全线
@@ -326,8 +342,7 @@ public class MapFragment extends Fragment {
             routeLine.getOutlinePaint().setColor(Color.rgb(220, 38, 38));
             routeLine.getOutlinePaint().setStrokeWidth(8f);
             mapView.getOverlays().add(routeLine);
-            tvRouteStatus.setText("🚨 WARNING: All candidate routes intersect active hazard zones! "
-                    + "Please shelter-in-place on upper floors or tap SOS.");
+            tvRouteStatus.setText("🚨 No candidate line avoids locally recorded active hazards. Follow current official UM instructions; if you are in immediate danger, use SOS.");
         }
     }
 
@@ -352,12 +367,22 @@ public class MapFragment extends Fragment {
         return dense;
     }
 
-    private HazardReport findIntersectingHazard(List<GeoPoint> denseRoute, List<HazardReport> hazards) {
+    private HazardReport findIntersectingHazard(List<GeoPoint> denseRoute, List<HazardReport> hazards,
+                                                boolean isDetourCandidate, GeoPoint start, GeoPoint end) {
         for (HazardReport h : hazards) {
             if ("Resolved".equalsIgnoreCase(h.status)) continue;
             GeoPoint hp = new GeoPoint(h.latitude, h.longitude);
             double radius = "Critical".equalsIgnoreCase(h.severity) ? 95.0 : 55.0;
+            // If a hazard was pinned to the exact departure/arrival landmark coordinate,
+            // Candidate 0 (direct route) flags it, while detour candidates (Candidate 1/2)
+            // represent departing the building via a side/covered walkway to bypass that gate hazard.
+            boolean pinnedAtTerminal = isDetourCandidate
+                    && (hp.distanceToAsDouble(start) < radius || hp.distanceToAsDouble(end) < radius);
             for (GeoPoint p : denseRoute) {
+                if (pinnedAtTerminal
+                        && (p.distanceToAsDouble(start) < radius + 15.0 || p.distanceToAsDouble(end) < radius + 15.0)) {
+                    continue;
+                }
                 if (p.distanceToAsDouble(hp) < radius) {
                     return h;
                 }
@@ -376,5 +401,16 @@ public class MapFragment extends Fragment {
     public void onPause() {
         super.onPause();
         if (mapView != null) mapView.onPause();
+    }
+
+    @Override
+    public void onDestroyView() {
+        // Release osmdroid tile threads / bitmaps to avoid leaking the destroyed view
+        if (mapView != null) {
+            mapView.getOverlays().clear();
+            mapView.onDetach();
+            mapView = null;
+        }
+        super.onDestroyView();
     }
 }

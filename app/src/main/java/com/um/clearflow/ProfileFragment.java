@@ -4,6 +4,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.Patterns;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -54,14 +55,25 @@ public class ProfileFragment extends Fragment {
             "KK12 (Kolej Kediaman Raja Dr. Nazrin Shah)",
             "KK8 (Kolej Kediaman Kinabalu)",
             "KK1 (Kolej Kediaman Tuanku Abdul Rahman)",
+            "KK2 (Kolej Kediaman Tuanku Bahiyah)",
+            "KK3 (Kolej Kediaman Tuanku Kurshiah)",
+            "KK4 (Kolej Kediaman Bestari)",
             "KK5 (Kolej Kediaman Dayasari)",
+            "KK6 (Kolej Kediaman Ibnu Sina)",
+            "KK7 (Kolej Kediaman Za'ba)",
+            "KK9 (Kolej Kediaman Syed Putra)",
+            "KK10 (Kolej Kediaman Tun Ahmad Zaidi)",
+            "KK11 (Kolej Kediaman Ungku Aziz)",
+            "KK13 (Kolej Kediaman Antarabangsa)",
             "Off-Campus / Pantai Hillpark / Bangsar South"
     };
 
     private final String[] mobilityOptions = {
-            "Standard Walking",
+            "Walking (Pedestrian / Covered Walkway)",
             "Wheelchair / Barrier-Free Ramp Only",
-            "Covered Walkway Priority (Rain Shelter)"
+            "Cycling (Bicycle / Micro-mobility)",
+            "UM Shuttle Bus (Kampus Bus AB / C)",
+            "Driving (Car / Motorcycle)"
     };
 
     @Nullable
@@ -106,7 +118,7 @@ public class ProfileFragment extends Fragment {
 
     private void loadSavedProfileFields() {
         CampusRepository repo = CampusRepository.getInstance();
-        // 修复缺陷10：默认使用脱敏演示学生信息，不硬编码个人真实隐私数据
+        // 默认使用脱敏演示学生信息，不硬编码个人真实隐私数据
         etEmail.setText(repo.getProfileField("siswa_email", "demo.student@siswa.um.edu.my"));
         etName.setText(repo.getProfileField("student_name", "Ahmad Danial (Demo Student)"));
         etMatric.setText(repo.getProfileField("matric_id", "S2104921"));
@@ -141,7 +153,8 @@ public class ProfileFragment extends Fragment {
             String emName = etEmergencyName.getText().toString().trim();
             String emPhone = etEmergencyPhone.getText().toString().trim();
 
-            if (!email.endsWith("@siswa.um.edu.my")) {
+            if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()
+                    || !email.endsWith("@siswa.um.edu.my")) {
                 tvAuthStatus.setText("❌ Domain Error: Must use an official @siswa.um.edu.my email!");
                 Toast.makeText(getContext(), "Invalid domain! Please use @siswa.um.edu.my", Toast.LENGTH_LONG).show();
                 return;
@@ -159,7 +172,8 @@ public class ProfileFragment extends Fragment {
                     spinnerMobility.getSelectedItem().toString()
             );
 
-            tvAuthStatus.setText("✅ Verified Siswa Session: " + email + " (" + matric + ")");
+            tvAuthStatus.setText("✅ Profile saved; email domain checked locally (not independently verified): "
+                    + email + " (" + matric + ")");
             Toast.makeText(getContext(), "Profile, Emergency Contact & Mobility Preferences saved!", Toast.LENGTH_SHORT).show();
         });
 
@@ -180,7 +194,7 @@ public class ProfileFragment extends Fragment {
                 return;
             }
             viewModel.sendBroadcast(msg);
-            Toast.makeText(getContext(), "Emergency Broadcast published to Map & Push Notification!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), "Local demo notice saved and shown on this device only.", Toast.LENGTH_SHORT).show();
         });
 
         btnClearBroadcast.setOnClickListener(v -> {
@@ -200,13 +214,25 @@ public class ProfileFragment extends Fragment {
             sendIntent.setType("text/csv");
             sendIntent.putExtra(Intent.EXTRA_SUBJECT, "UM-ClearFlow Hazard Report Export (CSV)");
             sendIntent.putExtra(Intent.EXTRA_TEXT, csvData);
+            try {
+                java.io.File exportDir = new java.io.File(requireContext().getCacheDir(), "exports");
+                if (!exportDir.exists()) exportDir.mkdirs();
+                java.io.File csvFile = new java.io.File(exportDir, "um_clearflow_reports.csv");
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(csvFile)) {
+                    fos.write(csvData.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                        requireContext(), requireContext().getPackageName() + ".fileprovider", csvFile);
+                sendIntent.putExtra(Intent.EXTRA_STREAM, uri);
+                sendIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) {}
             startActivity(Intent.createChooser(sendIntent, "Export CSV Report via..."));
         });
     }
 
     private void showAdminPinDialog() {
         EditText inputPin = new EditText(requireContext());
-        inputPin.setHint("Enter JPPHB Admin PIN (Demo: UM2026)");
+        inputPin.setHint("Enter JPPHB staff authorization PIN");
         inputPin.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
 
         new AlertDialog.Builder(requireContext())
@@ -216,7 +242,10 @@ public class ProfileFragment extends Fragment {
                 .setPositiveButton("Verify", (dialog, which) -> {
                     String pin = inputPin.getText().toString();
                     if (viewModel.verifyAdminPin(pin)) {
-                        Toast.makeText(getContext(), "✅ Authenticated as JPPHB Maintenance Admin!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(getContext(), "Demo admin view unlocked on this device only.", Toast.LENGTH_SHORT).show();
+                    } else if (CampusRepository.getInstance().getPinLockoutRemainingMs() > 0) {
+                        long sec = (CampusRepository.getInstance().getPinLockoutRemainingMs() + 999) / 1000;
+                        Toast.makeText(getContext(), "Too many wrong PINs. Try again in " + sec + "s.", Toast.LENGTH_LONG).show();
                     } else {
                         Toast.makeText(getContext(), "❌ Invalid Admin PIN! Access Denied.", Toast.LENGTH_LONG).show();
                     }
@@ -231,7 +260,7 @@ public class ProfileFragment extends Fragment {
             tvRoleStatus.setText("Current Role: " + role);
             btnToggleAdmin.setText(isAdmin
                     ? "🔓 Logout Admin (Return to Student View)"
-                    : "🔐 Authenticate JPPHB Admin (PIN: UM2026)");
+                    : "🔐 Authenticate JPPHB Admin");
             layoutAdminBroadcast.setVisibility(isAdmin ? View.VISIBLE : View.GONE);
             if (btnExportCsv != null) {
                 btnExportCsv.setVisibility(isAdmin ? View.VISIBLE : View.GONE);

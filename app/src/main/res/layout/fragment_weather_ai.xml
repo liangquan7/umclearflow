@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Early Warning &amp; AI Emergency Assistant"
+            android:text="Weather Estimates &amp; Campus Safety Guide"
             android:textColor="#0F172A"
             android:textSize="18sp"
             android:textStyle="bold" />
@@ -22,7 +22,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="10dp"
-            android:text="FR 3.2 Forecast × Topo Risk Fusion • FR 3.3 AI Chat • FR 5.3 Push Alerts"
+            android:text="Weather forecast • Local rule-based estimates • Device notifications"
             android:textColor="#64748B"
             android:textSize="12sp" />
 
@@ -61,7 +61,7 @@
                 android:layout_marginTop="8dp"
                 android:background="#FEF2F2"
                 android:padding="10dp"
-                android:text="Computing zone risk scores..."
+                android:text="Computing illustrative zone risk estimates from weather data and local reports..."
                 android:textColor="#991B1B"
                 android:textSize="12sp" />
 
@@ -106,7 +106,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="2. UM-ClearFlow AI Emergency Assistant (FR 3.3)"
+                android:text="2. Rule-Based Campus Safety Guide"
                 android:textColor="#1E293B"
                 android:textSize="14sp"
                 android:textStyle="bold" />

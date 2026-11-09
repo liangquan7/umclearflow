@@ -11,6 +11,8 @@ import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.Toast;
 
 import java.util.Locale;
@@ -19,6 +21,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.location.LocationManagerCompat;
+import androidx.core.os.CancellationSignal;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
@@ -27,11 +31,17 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final long MAX_SOS_LOCATION_AGE_MS = 10 * 60 * 1000L;
+    private static final long SOS_GPS_TIMEOUT_MS = 4000L;
+
     private Fragment mapFragment;
     private Fragment reportFragment;
     private Fragment weatherAiFragment;
     private Fragment profileFragment;
     private Fragment activeFragment;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private CancellationSignal pendingSosCancellation;
+    private Runnable pendingSosTimeout;
 
     private final ActivityResultLauncher<String> notifPermLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
@@ -52,8 +62,10 @@ public class MainActivity extends AppCompatActivity {
         CampusRepository repo = CampusRepository.getInstance();
         String emergencyPhone = repo.getProfileField("emergency_phone", "").trim();
         String[] options = {
-                "📍 Share Live GPS Link (WhatsApp / SMS / Share)",
-                "🚓 Call UM Auxiliary Police (03-7967 7070)",
+                "📍 Share GPS Fix with Another App (accuracy and age shown)",
+                "🚓 Call UM Auxiliary Police / Pejabat Keselamatan (03-7967 7070)",
+                "🏥 Call UM Medical Centre / PPUM Emergency (03-7949 4422)",
+                "🩺 Call UM Student Health Clinic / PKP (03-7967 6445)",
                 "🚑 Call Malaysia Emergency Services (999)",
                 "📞 Call My Emergency Contact" + (emergencyPhone.isEmpty() ? " (not set)" : " (" + emergencyPhone + ")")
         };
@@ -62,7 +74,9 @@ public class MainActivity extends AppCompatActivity {
                 .setItems(options, (d, which) -> {
                     if (which == 0) shareLiveLocationWithPermission();
                     else if (which == 1) dial("0379677070");
-                    else if (which == 2) dial("999");
+                    else if (which == 2) dial("0379494422");
+                    else if (which == 3) dial("0379676445");
+                    else if (which == 4) dial("999");
                     else if (emergencyPhone.isEmpty()) {
                         Toast.makeText(this, "Set an emergency contact in the Profile tab first.", Toast.LENGTH_SHORT).show();
                     } else dial(emergencyPhone);
@@ -100,11 +114,68 @@ public class MainActivity extends AppCompatActivity {
         return best;
     }
 
+    @SuppressLint("MissingPermission")
     private void shareLiveLocation() {
+        cancelPendingSosLocationRequest();
+        final Location cached = bestLastKnownLocation();
+        boolean freshEnough = cached != null
+                && (System.currentTimeMillis() - cached.getTime() <= MAX_SOS_LOCATION_AGE_MS);
+        if (freshEnough) {
+            dispatchSosShareIntent(cached);
+            return;
+        }
+
+        LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (lm != null) {
+            String activeProvider = null;
+            for (String p : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+                try {
+                    if (lm.isProviderEnabled(p)) {
+                        activeProvider = p;
+                        break;
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (activeProvider != null) {
+                Toast.makeText(this, "📡 Acquiring live GPS fix for SOS...", Toast.LENGTH_SHORT).show();
+                final CancellationSignal signal = new CancellationSignal();
+                pendingSosCancellation = signal;
+                Runnable timeout = () -> {
+                    if (pendingSosCancellation != signal) return;
+                    cancelPendingSosLocationRequest();
+                    if (!isFinishing() && !isDestroyed()) {
+                        dispatchSosShareIntent(cached);
+                    }
+                };
+                pendingSosTimeout = timeout;
+                mainHandler.postDelayed(timeout, SOS_GPS_TIMEOUT_MS);
+                try {
+                    LocationManagerCompat.getCurrentLocation(
+                            lm,
+                            activeProvider,
+                            signal,
+                            ContextCompat.getMainExecutor(this),
+                            fresh -> {
+                                if (pendingSosCancellation != signal) return;
+                                cancelPendingSosLocationRequest();
+                                if (!isFinishing() && !isDestroyed()) {
+                                    dispatchSosShareIntent(fresh != null ? fresh : cached);
+                                }
+                            }
+                    );
+                    return;
+                } catch (SecurityException | IllegalArgumentException ignored) {
+                    cancelPendingSosLocationRequest();
+                }
+            }
+        }
+        dispatchSosShareIntent(cached);
+    }
+
+    private void dispatchSosShareIntent(Location loc) {
         CampusRepository repo = CampusRepository.getInstance();
         String name = repo.getProfileField("student_name", "UM Student");
         String college = repo.getProfileField("college", "UM Campus");
-        Location loc = bestLastKnownLocation();
 
         StringBuilder body = new StringBuilder("[UM-ClearFlow SOS] Emergency assistance needed!\n")
                 .append("Sender: ").append(name).append(" (").append(college).append(")\n");
@@ -125,14 +196,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void dial(String phone) {
-        startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone))));
+        try {
+            startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone))));
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "No dialer app available. Emergency number: " + phone, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void cancelPendingSosLocationRequest() {
+        CancellationSignal signal = pendingSosCancellation;
+        Runnable timeout = pendingSosTimeout;
+        pendingSosCancellation = null;
+        pendingSosTimeout = null;
+        if (timeout != null) mainHandler.removeCallbacks(timeout);
+        if (signal != null) signal.cancel();
     }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         CampusRepository.init(getApplicationContext());
         super.onCreate(savedInstanceState);
-        // 初始化 SQLite 与全局上下文
 
         setContentView(R.layout.activity_main);
         findViewById(R.id.btnTopSos).setOnClickListener(v -> showSosDialog());
@@ -197,5 +280,12 @@ public class MainActivity extends AppCompatActivity {
                 notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
             }
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        cancelPendingSosLocationRequest();
+        mainHandler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 }

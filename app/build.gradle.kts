@@ -9,7 +9,10 @@ val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
-val apiBaseUrl = localProperties.getProperty("API_BASE_URL", "https://api.clearflow.um.edu.my/")
+val apiBaseUrl = localProperties.getProperty("API_BASE_URL", "http://10.0.2.2:8000/")
+// SHA-256("clearflow-admin-v1:" + PIN). Override in local.properties (ADMIN_PIN_HASH=...) so the real PIN never ships in source.
+val adminPinHash = localProperties.getProperty(
+    "ADMIN_PIN_HASH", "c38a3d0d4a1fc5f2538d1445ede4008f3bf69833f13417ca107887ff3ea5fa37")
 
 android {
     namespace = "com.um.clearflow"
@@ -20,12 +23,13 @@ android {
     defaultConfig {
         applicationId = "com.um.clearflow"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "ADMIN_PIN_HASH", "\"$adminPinHash\"")
     }
 
     buildFeatures {
@@ -51,10 +55,6 @@ dependencies {
     implementation(libs.appcompat)
     implementation(libs.constraintlayout)
     implementation(libs.material)
-    implementation(libs.retrofit)
-    implementation(libs.converter.gson)
-    implementation(libs.okhttp)
-    implementation(libs.glide)
     implementation(libs.osmdroid.android)
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.livedata)
