@@ -259,16 +259,10 @@ public class CampusRepository {
         cv.put("reporterEmail", r.reporterEmail);
         cv.put("timeline", r.timeline);
         cv.put("photoUri", r.photoUri != null ? r.photoUri : "");
-        db.insertWithOnConflict("hazard_reports", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
-    }
-
-    private void insertUserVoteDb(String reportId, String voteType) {
-        if (dbHelper == null) return;
-        ContentValues cv = new ContentValues();
-        cv.put("report_id", reportId);
-        cv.put("vote_type", voteType);
-        dbHelper.getWritableDatabase().insertWithOnConflict(
-                "user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
+        int rows = db.update("hazard_reports", cv, "id=?", new String[]{r.id});
+        if (rows == 0) {
+            db.insertWithOnConflict("hazard_reports", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+        }
     }
 
     /** Persist captured report photo into internal app storage (files/report_photos/<id>.jpg). */
@@ -396,10 +390,14 @@ public class CampusRepository {
                                 existing.latitude, existing.longitude,
                                 newReport.latitude, newReport.longitude);
                         if (distMeters <= 50.0) {
-                            boolean firstVoteOnDevice = upvotedIds.add(existing.id);
-                            if (firstVoteOnDevice) {
-                                existing.upvotes += 1;
-                                insertUserVoteDb(existing.id, "UPVOTE");
+                            existing.upvotes += 1;
+                            upvotedIds.add(existing.id);
+                            if (dbHelper != null) {
+                                ContentValues cv = new ContentValues();
+                                cv.put("report_id", existing.id);
+                                cv.put("vote_type", "UPVOTE");
+                                dbHelper.getWritableDatabase().insertWithOnConflict(
+                                        "user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
                             }
                             if ((existing.photoUri == null || existing.photoUri.isEmpty())
                                     && newReport.photoUri != null && !newReport.photoUri.isEmpty()) {
@@ -411,8 +409,7 @@ public class CampusRepository {
                                 existing.severity = "Critical";
                             }
                             existing.timeline = existing.timeline + "\n" + nowTime
-                                    + " • Merged nearby duplicate report (<50m"
-                                    + (firstVoteOnDevice ? ", Upvote +1" : ", this device's vote already counted")
+                                    + " • Merged nearby duplicate report (<50m, Upvotes +1"
                                     + (upgradedToCritical ? ", escalated to Critical)" : ")");
                             insertOrUpdateReportDb(existing);
                             publishSnapshotLocked();
@@ -428,9 +425,6 @@ public class CampusRepository {
                 }
 
                 reportsList.add(0, new HazardReport(newReport));
-                if (newReport.upvotes > 0 && upvotedIds.add(newReport.id)) {
-                    insertUserVoteDb(newReport.id, "UPVOTE");
-                }
                 insertOrUpdateReportDb(newReport);
                 publishSnapshotLocked();
 
@@ -533,7 +527,7 @@ public class CampusRepository {
                 for (HazardReport r : reportsList) {
                     if (r.id.equals(id)) {
                         r.status = newStatus;
-                        r.timeline = r.timeline + "\n" + nowTime + " • Local demo status updated to [" + newStatus + "]";
+                        r.timeline = r.timeline + "\n" + nowTime + " • Status updated to [" + newStatus + "] by JPPHB Admin";
                         insertOrUpdateReportDb(r);
                         break;
                     }
@@ -555,8 +549,8 @@ public class CampusRepository {
             java.net.URL url = new java.net.URL(API_BASE_URL + "api/v1/triage");
             conn = (java.net.HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
-            conn.setConnectTimeout(1800);
-            conn.setReadTimeout(2500);
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(15000);
             conn.setDoOutput(true);
             conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 

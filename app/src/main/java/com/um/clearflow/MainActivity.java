@@ -13,16 +13,22 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.widget.Toast;
 
 import java.util.Locale;
 
+import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
 import androidx.core.location.LocationManagerCompat;
 import androidx.core.os.CancellationSignal;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
@@ -63,20 +69,20 @@ public class MainActivity extends AppCompatActivity {
         String emergencyPhone = repo.getProfileField("emergency_phone", "").trim();
         String[] options = {
                 "📍 Share GPS Fix with Another App (accuracy and age shown)",
-                "🚓 Call UM Auxiliary Police / Pejabat Keselamatan (03-7967 7070)",
-                "🏥 Call UM Medical Centre / PPUM Emergency (03-7949 4422)",
-                "🩺 Call UM Student Health Clinic / PKP (03-7967 6445)",
-                "🚑 Call Malaysia Emergency Services (999)",
+                "🚓 Call UM Security Office (" + EmergencyContacts.UM_SECURITY_DISPLAY + ", 24h)",
+                "🏥 Call UM Medical Centre / UMMC (" + EmergencyContacts.UMMC_DISPLAY + ")",
+                "🩺 Call UM Clinic (" + EmergencyContacts.UM_CLINIC_DISPLAY + ")",
+                "🚑 Call Malaysia Emergency Services (" + EmergencyContacts.NATIONAL_EMERGENCY + ")",
                 "📞 Call My Emergency Contact" + (emergencyPhone.isEmpty() ? " (not set)" : " (" + emergencyPhone + ")")
         };
         new AlertDialog.Builder(this)
                 .setTitle("🚨 UM-ClearFlow Emergency SOS")
                 .setItems(options, (d, which) -> {
                     if (which == 0) shareLiveLocationWithPermission();
-                    else if (which == 1) dial("0379677070");
-                    else if (which == 2) dial("0379494422");
-                    else if (which == 3) dial("0379676445");
-                    else if (which == 4) dial("999");
+                    else if (which == 1) dial(EmergencyContacts.UM_SECURITY_DIAL);
+                    else if (which == 2) dial(EmergencyContacts.UMMC_DIAL);
+                    else if (which == 3) dial(EmergencyContacts.UM_CLINIC_DIAL);
+                    else if (which == 4) dial(EmergencyContacts.NATIONAL_EMERGENCY);
                     else if (emergencyPhone.isEmpty()) {
                         Toast.makeText(this, "Set an emergency contact in the Profile tab first.", Toast.LENGTH_SHORT).show();
                     } else dial(emergencyPhone);
@@ -212,12 +218,36 @@ public class MainActivity extends AppCompatActivity {
         if (signal != null) signal.cancel();
     }
 
+    /**
+     * targetSdk 36 => edge-to-edge is enforced on Android 15+. Without this the dark header and the SOS
+     * button sit under the status bar / camera cut-out. The bottom bar is handled by
+     * BottomNavigationView (app:paddingBottomSystemWindowInsets="true" in activity_main.xml).
+     */
+    private void applySystemBarInsets() {
+        final View header = findViewById(R.id.topHeader);
+        final int l = header.getPaddingLeft();
+        final int t = header.getPaddingTop();
+        final int r = header.getPaddingRight();
+        final int b = header.getPaddingBottom();
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main_root), (v, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            header.setPadding(l + bars.left, t + bars.top, r + bars.right, b);
+            return windowInsets;
+        });
+        // Header is dark blue -> status-bar icons must be light
+        WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView())
+                .setAppearanceLightStatusBars(false);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         CampusRepository.init(getApplicationContext());
+        EdgeToEdge.enable(this);
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_main);
+        applySystemBarInsets();
         findViewById(R.id.btnTopSos).setOnClickListener(v -> showSosDialog());
         requestNotificationPermissionIfNeeded();
 

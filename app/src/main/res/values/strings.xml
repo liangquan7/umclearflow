@@ -54,7 +54,7 @@
     <string name="live_reports_title">📋 Reports Saved on This Device (votes and status are local)</string>
     <string name="toast_sample_image_loaded">Loaded UM Sample Hazard Image</string>
     <string name="toast_saved_offline">Saved on this device. This version does not sync reports to a server.</string>
-    <string name="toast_published">Report saved locally and shown on this device's map.</string>
+    <string name="toast_published">Report saved locally and shown on this device\'s map.</string>
     <string name="status_update_dialog_title">Update Ticket Status (%1$s)</string>
     <string name="status_pending">Local demo status: Submitted</string>
     <string name="status_in_progress">Local demo status: In Progress</string>

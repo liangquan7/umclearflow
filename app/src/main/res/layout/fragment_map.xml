@@ -5,7 +5,6 @@
     android:orientation="vertical"
     android:background="#F8FAFC">
 
-    <!-- 紧凑地图状态栏（移除冗余的第二层深色大标题栏，避免与全局顶栏重叠） -->
     <TextView
         android:id="@+id/tv_map_summary"
         android:layout_width="match_parent"
@@ -18,7 +17,6 @@
         android:textSize="12sp"
         android:textStyle="bold" />
 
-    <!-- FR 1.3 管理员应急广播横幅 -->
     <TextView
         android:id="@+id/tv_broadcast_banner"
         android:layout_width="match_parent"
@@ -30,7 +28,6 @@
         android:textStyle="bold"
         android:visibility="gone" />
 
-    <!-- FR 4.1 筛选与避难所图层控制栏 -->
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -49,41 +46,50 @@
                 android:id="@+id/btn_filter_all"
                 style="?attr/materialButtonOutlinedStyle"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginEnd="6dp"
                 android:text="All"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
 
             <Button
                 android:id="@+id/btn_filter_critical"
                 style="?attr/materialButtonOutlinedStyle"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginEnd="6dp"
                 android:text="Critical Only"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_my_location"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginEnd="6dp"
+                android:contentDescription="Show my current location on the map"
+                android:text="📍 My Location"
+                android:textSize="12sp" />
 
             <CheckBox
                 android:id="@+id/cb_show_shelters"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
+                android:layout_height="48dp"
                 android:layout_marginEnd="8dp"
                 android:checked="true"
                 android:text="Shelters Layer"
                 android:textColor="#0F172A"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
 
             <CheckBox
                 android:id="@+id/cb_evac_route"
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="Route Estimate"
+                android:layout_height="48dp"
+                android:text="Safe Route"
                 android:textColor="#0F172A"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- FR 4.2 起终点选择器 + 避障路由状态栏 -->
     <LinearLayout
         android:id="@+id/layout_route_selector"
         android:layout_width="match_parent"
@@ -110,8 +116,9 @@
             <Spinner
                 android:id="@+id/spinner_origin"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
-                android:layout_weight="1" />
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:contentDescription="Route starting point" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -125,8 +132,9 @@
             <Spinner
                 android:id="@+id/spinner_destination"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
-                android:layout_weight="1" />
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:contentDescription="Route destination shelter" />
         </LinearLayout>
 
         <TextView
@@ -134,12 +142,11 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="Estimate an illustrative route using hazards saved on this device. This does not confirm the route is safe or accessible."
+            android:text="Road route that avoids hazards recorded on this device. It does not confirm the path is safe or accessible."
             android:textColor="#1E40AF"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
     </LinearLayout>
 
-    <!-- OSM 交互式地图容器 -->
     <org.osmdroid.views.MapView
         android:id="@+id/osm_map"
         android:layout_width="match_parent"

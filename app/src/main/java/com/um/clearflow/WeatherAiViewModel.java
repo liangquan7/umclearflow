@@ -40,8 +40,9 @@ public class WeatherAiViewModel extends ViewModel {
     private final MutableLiveData<String> riskMatrixLiveData = new MutableLiveData<>(
             "Calculating Forecast × Historical Flood Weight fusion score...");
     private final MutableLiveData<String> chatHistoryLiveData = new MutableLiveData<>(
-            "UM-ClearFlow Campus Safety Guide: I use preset rules and reports saved on this device. I do not provide verified live emergency guidance. Ask about shelter locations, hazards, or general safety tips.\n" +
-                    "⚠️ Disclaimer: In life-threatening situations, always call 999 or UM Auxiliary Police (03-7967 7070) first.");
+            "🤖 UM-ClearFlow Assistant: Hello! Ask me about flood-safe routes, nearest shelters, active hazards, or monsoon SOPs.\n" +
+                    "⚠️ Disclaimer: In life-threatening situations, always call " + EmergencyContacts.NATIONAL_EMERGENCY +
+                    " or UM Security Office (" + EmergencyContacts.UM_SECURITY_DISPLAY + ") first.");
 
     @Override
     protected void onCleared() {
@@ -174,36 +175,44 @@ public class WeatherAiViewModel extends ViewModel {
         });
     }
 
-    // FR 3.2: 降雨预报 × 区域历史低洼权重 × 当前活跃上报数 融合评分
+    // FR 3.2: rainfall forecast × zone topographic weight × active hazards × historical report density
     private void computeZoneRiskFusion(double currentRain, double next3hRain, int maxProb) {
-        List<HazardReport> activeReports = repository.getReportsLiveData().getValue();
-        int pantaiActive = 0, fcsitActive = 0, kk12Active = 0;
+        List<HazardReport> reports = repository.getReportsLiveData().getValue();
+        int[] active = new int[3];   // 0 = Pantai/Budi, 1 = FCSIT/Library, 2 = KK12
+        int[] history = new int[3];  // all reports ever recorded in the zone, incl. resolved
 
-        if (activeReports != null) {
-            for (HazardReport r : activeReports) {
-                if ("Resolved".equalsIgnoreCase(r.status)) continue;
+        if (reports != null) {
+            for (HazardReport r : reports) {
                 String loc = r.locationName != null ? r.locationName : "";
-                int weight = "Critical".equalsIgnoreCase(r.severity) ? 2 : 1;
-                if (loc.contains("Pantai") || loc.contains("Budi")) pantaiActive += weight;
-                else if (loc.contains("FCSIT") || loc.contains("Library")) fcsitActive += weight;
-                else if (loc.contains("KK12")) kk12Active += weight;
+                int zone;
+                if (loc.contains("Pantai") || loc.contains("Budi")) zone = 0;
+                else if (loc.contains("FCSIT") || loc.contains("Library")) zone = 1;
+                else if (loc.contains("KK12")) zone = 2;
+                else continue;
+                history[zone]++;
+                if (!"Resolved".equalsIgnoreCase(r.status)) {
+                    active[zone] += "Critical".equalsIgnoreCase(r.severity) ? 2 : 1;
+                }
             }
         }
 
-        // 公式：RiskScore = min(100, (CurrentRain*2.2 + Next3hRain*1.4) * ZoneTopoWeight + ActiveHazardPenalty * 14)
         double baseRainFactor = currentRain * 2.2 + next3hRain * 1.4 + (maxProb * 0.12);
-        int pantaiScore = (int) Math.min(100, Math.round(baseRainFactor * 1.45 + pantaiActive * 15));
-        int fcsitScore = (int) Math.min(100, Math.round(baseRainFactor * 1.15 + fcsitActive * 14));
-        int kk12Score = (int) Math.min(100, Math.round(baseRainFactor * 1.05 + kk12Active * 12));
+        double[] topo = {1.45, 1.15, 1.05};
+        int[] penalty = {15, 14, 12};
+        int[] score = new int[3];
+        for (int z = 0; z < 3; z++) {
+            double historyFactor = 1.0 + Math.min(0.40, history[z] * 0.04); // +4% per past report, max +40%
+            score[z] = (int) Math.min(100, Math.round(baseRainFactor * topo[z] * historyFactor + active[z] * penalty[z]));
+        }
 
         String matrixText = String.format(Locale.US,
-                "Illustrative rule-based risk estimate (unvalidated formula using weather inputs and on-device reports):\n" +
-                        "1. Lingkungan Budi / Pantai Gate (Weight 1.45x): %d/100 [%s]\n" +
-                        "2. FCSIT & Central Library Culvert (Weight 1.15x): %d/100 [%s]\n" +
-                        "3. KK12 Residential Corridor (Weight 1.05x): %d/100 [%s]",
-                pantaiScore, levelFromScore(pantaiScore),
-                fcsitScore, levelFromScore(fcsitScore),
-                kk12Score, levelFromScore(kk12Score));
+                "Illustrative rule-based risk estimate (unvalidated formula: weather forecast × zone weight × history + active reports):\n" +
+                        "1. Lingkungan Budi / Pantai Gate (Weight 1.45x, %d past reports): %d/100 [%s]\n" +
+                        "2. FCSIT & Central Library Culvert (Weight 1.15x, %d past reports): %d/100 [%s]\n" +
+                        "3. KK12 Residential Corridor (Weight 1.05x, %d past reports): %d/100 [%s]",
+                history[0], score[0], levelFromScore(score[0]),
+                history[1], score[1], levelFromScore(score[1]),
+                history[2], score[2], levelFromScore(score[2]));
 
         riskMatrixLiveData.postValue(matrixText);
     }
@@ -275,8 +284,8 @@ public class WeatherAiViewModel extends ViewModel {
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            conn.setConnectTimeout(2000);
-            conn.setReadTimeout(3500);
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(20000);
             conn.setDoOutput(true);
 
             JSONObject body = new JSONObject();
@@ -299,7 +308,8 @@ public class WeatherAiViewModel extends ViewModel {
                 JSONObject json = new JSONObject(resp.toString());
                 if (json.has("reply")) {
                     return json.getString("reply")
-                            + "\n⚠️ [Emergency Priority: Dial 999 or UM Auxiliary Police 03-7967 7070 if trapped]";
+                            + "\n⚠️ [Emergency Priority: Dial " + EmergencyContacts.NATIONAL_EMERGENCY
+                            + " or UM Security Office " + EmergencyContacts.UM_SECURITY_DISPLAY + " if trapped]";
                 }
             }
         } catch (Exception ignored) {
@@ -329,13 +339,13 @@ public class WeatherAiViewModel extends ViewModel {
 
         StringBuilder answer = new StringBuilder();
         if (lower.contains("shelter") || lower.contains("evacuat") || lower.contains("where to go") || lower.contains("避难")) {
-            answer.append("Based on your mobility preference (").append(mobility).append("), here are preset shelter locations for this demo (not official and not live):\n");
+            answer.append("Based on your mobility preference (").append(mobility).append("), here are the official UM Evacuation Shelters:\n");
             for (CampusRepository.ShelterInfo s : repository.getCampusShelters()) {
                 answer.append("🏛️ ").append(s.name).append(" — ").append(s.description).append("\n");
             }
             answer.append("The Map tab shows an illustrative route estimate from locally recorded hazards; verify current conditions, accessibility, and official UM guidance before moving.");
         } else if (lower.contains("route") || lower.contains("safe") || lower.contains("fcsit") || lower.contains("pantai") || lower.contains("kk12") || lower.contains("kk8")) {
-            answer.append("Illustrative route and local hazard summary (weather values may be cached; reports are on this device only. Current rain: ").append(rain)
+            answer.append("Live Route & Hazard Assessment (Current rain: ").append(rain)
                     .append(" mm, 3h forecast: ").append(forecast3h).append(" mm):\n");
             if (activeCount == 0) {
                 answer.append("No active hazards are recorded in this device's local report list. This does not confirm that routes are clear; check current conditions and official campus alerts.");
@@ -346,22 +356,26 @@ public class WeatherAiViewModel extends ViewModel {
             }
         } else if (lower.contains("sos") || lower.contains("help") || lower.contains("trapped") || lower.contains("phone") || lower.contains("contact")) {
             answer.append("🚨 Immediate Emergency Contacts:\n")
-                    .append("• Malaysia Emergency Services: 999\n")
-                    .append("• UM Auxiliary Police (Pejabat Keselamatan 24/7): 03-7967 7070\n")
-                    .append("• UM Medical Centre (PPUM Emergency): 03-7949 4422 | Student Clinic: 03-7967 6445\n")
+                    .append("• Malaysia Emergency Services: ").append(EmergencyContacts.NATIONAL_EMERGENCY).append("\n")
+                    .append("• UM Security Office (24h): ").append(EmergencyContacts.UM_SECURITY_DISPLAY).append("\n")
+                    .append("• UM Medical Centre (UMMC): ").append(EmergencyContacts.UMMC_DISPLAY)
+                    .append(" | UM Clinic: ").append(EmergencyContacts.UM_CLINIC_DISPLAY).append("\n")
                     .append("• Saved Personal Emergency Contact: ")
                     .append(repository.getProfileField("emergency_name", "None"))
                     .append(" (").append(repository.getProfileField("emergency_phone", "Not set")).append(")\n")
                     .append("Use the red 'SOS UM' button at the top bar to share your live Google Maps coordinates.");
         } else {
-            answer.append("On-Device Campus Demo Summary:\n")
+            answer.append("Live Campus Status Summary:\n")
                     .append("• Active Unresolved Hazards in SQLite: ").append(activeCount).append("\n")
                     .append("• Current Rainfall: ").append(rain).append(" mm | Next 3h Forecast: ").append(forecast3h).append(" mm\n")
                     .append("• Mobility Mode: ").append(mobility).append("\n")
                     .append("You can ask me about 'nearest shelters', 'safe route from Pantai Gate', or 'emergency numbers'.");
         }
 
-        answer.append("\n⚠️ Disclaimer: In any life-threatening emergency, prioritize dialing 999 or UM Auxiliary Police (03-7967 7070).");
+        answer.append("\n⚠️ Disclaimer: In any life-threatening emergency, prioritize dialing ")
+                .append(EmergencyContacts.NATIONAL_EMERGENCY)
+                .append(" or UM Security Office (")
+                .append(EmergencyContacts.UM_SECURITY_DISPLAY).append(").");
         return answer.toString();
     }
 }

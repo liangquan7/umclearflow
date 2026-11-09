@@ -45,8 +45,9 @@
         <Button
             android:id="@+id/btnTopSos"
             android:layout_width="wrap_content"
-            android:layout_height="38dp"
+            android:layout_height="48dp"
             android:backgroundTint="#D32F2F"
+            android:contentDescription="Emergency SOS"
             android:text="@string/btn_sos_text"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
@@ -71,6 +72,7 @@
         app:itemTextColor="#002B5B"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_nav_menu"
+        app:paddingBottomSystemWindowInsets="true"
         app:layout_constraintBottom_toBottomOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

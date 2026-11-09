@@ -9,28 +9,29 @@ import androidx.lifecycle.ViewModel;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class ReportViewModel extends ViewModel {
 
-    public static class TriageResponse {
+    public static class TriageSubmissionResult {
         public final long requestId;
         public final String inputKey;
         public final CampusRepository.TriageResult result;
 
-        TriageResponse(long requestId, String inputKey, CampusRepository.TriageResult result) {
+        public TriageSubmissionResult(long requestId, String inputKey, CampusRepository.TriageResult result) {
             this.requestId = requestId;
-            this.inputKey = inputKey;
+            this.inputKey = inputKey != null ? inputKey : "";
             this.result = result;
         }
     }
 
     private final CampusRepository repository = CampusRepository.getInstance();
     private final ExecutorService triageExecutor = Executors.newSingleThreadExecutor();
-    private final MutableLiveData<TriageResponse> triageResultLiveData = new MutableLiveData<>();
+    private final AtomicLong requestIdGenerator = new AtomicLong(0L);
+    private final MutableLiveData<TriageSubmissionResult> triageResultLiveData = new MutableLiveData<>();
     private final MutableLiveData<Boolean> showOnlyMyReports = new MutableLiveData<>(false);
     // Survives rotation / Fragment view recreation (Fragment fields do not)
     private Bitmap capturedPhoto;
-    private long nextTriageRequestId = 0L;
 
     public Bitmap getCapturedPhoto() {
         return capturedPhoto;
@@ -48,7 +49,7 @@ public class ReportViewModel extends ViewModel {
         return repository.getUserRoleLiveData();
     }
 
-    public LiveData<TriageResponse> getTriageResult() {
+    public LiveData<TriageSubmissionResult> getTriageResult() {
         return triageResultLiveData;
     }
 
@@ -60,19 +61,19 @@ public class ReportViewModel extends ViewModel {
         showOnlyMyReports.setValue(onlyMine);
     }
 
-    public synchronized long performVisionTriage(Bitmap photo, int hazardTypeIndex, String title, String inputKey) {
+    public long performVisionTriage(Bitmap photo, int hazardTypeIndex, String title, String inputKey) {
+        final long reqId = requestIdGenerator.incrementAndGet();
+        final String key = inputKey != null ? inputKey : "";
         // Run vision triage on background thread so FastAPI /api/v1/triage can be queried first
-        long requestId = ++nextTriageRequestId;
         triageExecutor.execute(() -> {
-            CampusRepository.TriageResult result;
-            try {
-                result = repository.runVisionTriage(photo, hazardTypeIndex, title);
-            } catch (RuntimeException e) {
-                result = repository.runTriage(hazardTypeIndex, title);
-            }
-            triageResultLiveData.postValue(new TriageResponse(requestId, inputKey, result));
+            CampusRepository.TriageResult res = repository.runVisionTriage(photo, hazardTypeIndex, title);
+            triageResultLiveData.postValue(new TriageSubmissionResult(reqId, key, res));
         });
-        return requestId;
+        return reqId;
+    }
+
+    public long performVisionTriage(Bitmap photo, int hazardTypeIndex, String title) {
+        return performVisionTriage(photo, hazardTypeIndex, title, "");
     }
 
     @Override

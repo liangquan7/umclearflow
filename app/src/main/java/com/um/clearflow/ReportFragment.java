@@ -2,19 +2,19 @@ package com.um.clearflow;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.location.Location;
 import android.location.LocationManager;
+import android.media.ExifInterface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.MediaStore;
-import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -32,6 +32,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.core.location.LocationManagerCompat;
 import androidx.core.os.CancellationSignal;
 import androidx.fragment.app.Fragment;
@@ -39,6 +40,7 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -53,6 +55,9 @@ public class ReportFragment extends Fragment {
     private static final Pattern COORD_PATTERN = Pattern.compile("\\(([-\\d.]+),\\s*([-\\d.]+)\\)");
     private static final long MAX_REPORT_LOCATION_AGE_MS = 10 * 60 * 1000L;
     private static final long LIVE_GPS_TIMEOUT_MS = 6000L;
+    private static final String CAMERA_DIR = "camera";
+    private static final String PENDING_PHOTO = "pending_report.jpg";
+    private static final int MAX_PHOTO_DIMENSION = 1280;
 
     private ReportViewModel viewModel;
     private Spinner spinnerLocation;
@@ -83,20 +88,30 @@ public class ReportFragment extends Fragment {
     private CancellationSignal gpsCancelSignal = null;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    @SuppressWarnings("deprecation")
-    private final ActivityResultLauncher<Intent> cameraLauncher =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-                    Bundle extras = result.getData().getExtras();
-                    if (extras != null && extras.get("data") instanceof Bitmap) {
-                        capturedBitmap = (Bitmap) extras.get("data");
-                        viewModel.setCapturedPhoto(capturedBitmap);
-                        ivPhotoPreview.setImageBitmap(capturedBitmap);
+    /**
+     * Full-resolution capture through FileProvider. The old ACTION_IMAGE_CAPTURE "data" extra is only a
+     * ~160x120 thumbnail, far too small for photo triage or for a useful report photo (FR 2.1 / 3.1).
+     * A fixed file name is used so the callback still works after the fragment is re-created.
+     */
+    private final ActivityResultLauncher<Uri> takePictureLauncher =
+            registerForActivityResult(new ActivityResultContracts.TakePicture(), success -> {
+                Context ctx = getContext();
+                if (ctx == null) return;
+                File photoFile = new File(new File(ctx.getCacheDir(), CAMERA_DIR), PENDING_PHOTO);
+                if (Boolean.TRUE.equals(success) && photoFile.exists()) {
+                    Bitmap bmp = decodeCapturedPhoto(photoFile, MAX_PHOTO_DIMENSION);
+                    if (bmp != null && ivPhotoPreview != null) {
+                        capturedBitmap = bmp;
+                        viewModel.setCapturedPhoto(bmp);
+                        ivPhotoPreview.setImageBitmap(bmp);
                         ivPhotoPreview.setVisibility(View.VISIBLE);
-                        // Analyze the current photo and form values without overriding the user's category.
                         requestTriage(false);
+                    } else {
+                        Toast.makeText(ctx, "Could not read the captured photo.", Toast.LENGTH_SHORT).show();
                     }
                 }
+                //noinspection ResultOfMethodCallIgnored
+                photoFile.delete();
             });
 
     private final ActivityResultLauncher<String[]> gpsPermLauncher =
@@ -145,7 +160,6 @@ public class ReportFragment extends Fragment {
         reportsListContainer.setLayoutManager(new LinearLayoutManager(requireContext()));
         reportsListContainer.setAdapter(reportAdapter);
 
-        // Restore photo captured before a rotation / view recreation
         capturedBitmap = viewModel.getCapturedPhoto();
         if (capturedBitmap != null) {
             ivPhotoPreview.setImageBitmap(capturedBitmap);
@@ -180,7 +194,7 @@ public class ReportFragment extends Fragment {
         spinnerHazardType.setAdapter(new ArrayAdapter<>(
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, hazardTypes));
         spinnerLocation.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            private boolean first = true;   // 跳过初始化时的自动回调
+            private boolean first = true;   // skip the automatic callback at init
             @Override
             public void onItemSelected(AdapterView<?> parent, View v, int pos, long id) {
                 if (first) { first = false; return; }
@@ -214,14 +228,7 @@ public class ReportFragment extends Fragment {
             }
         });
 
-        btnPhoto.setOnClickListener(v -> {
-            Intent takePic = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-            try {
-                cameraLauncher.launch(takePic);
-            } catch (Exception e) {
-                Toast.makeText(getContext(), "Camera not available on this device.", Toast.LENGTH_SHORT).show();
-            }
-        });
+        btnPhoto.setOnClickListener(v -> launchCamera());
 
         btnTriage.setOnClickListener(v -> requestTriage(false));
 
@@ -231,12 +238,63 @@ public class ReportFragment extends Fragment {
         btnTabMine.setOnClickListener(v -> viewModel.setShowOnlyMyReports(true));
     }
 
+    private void launchCamera() {
+        try {
+            Context ctx = requireContext();
+            File dir = new File(ctx.getCacheDir(), CAMERA_DIR);
+            if (!dir.exists() && !dir.mkdirs()) {
+                Toast.makeText(ctx, "Cannot prepare camera storage.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            File photoFile = new File(dir, PENDING_PHOTO);
+            Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", photoFile);
+            takePictureLauncher.launch(uri);
+        } catch (Exception e) {
+            Toast.makeText(getContext(), "Camera not available on this device.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Down-sampled decode + EXIF rotation so the preview, triage upload and saved JPEG are upright and small. */
+    @Nullable
+    private static Bitmap decodeCapturedPhoto(File file, int maxDimension) {
+        String path = file.getAbsolutePath();
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(path, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+
+        int sample = 1;
+        while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxDimension) {
+            sample *= 2;
+        }
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = sample;
+        Bitmap bmp = BitmapFactory.decodeFile(path, opts);
+        if (bmp == null) return null;
+
+        int rotation = 0;
+        try {
+            int orientation = new ExifInterface(path).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+            if (orientation == ExifInterface.ORIENTATION_ROTATE_90) rotation = 90;
+            else if (orientation == ExifInterface.ORIENTATION_ROTATE_180) rotation = 180;
+            else if (orientation == ExifInterface.ORIENTATION_ROTATE_270) rotation = 270;
+        } catch (Exception ignored) {}
+        if (rotation != 0) {
+            Matrix m = new Matrix();
+            m.postRotate(rotation);
+            Bitmap rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), m, true);
+            if (rotated != bmp) bmp.recycle();
+            bmp = rotated;
+        }
+        return bmp;
+    }
+
     @SuppressLint("MissingPermission")
     private void fetchDeviceGpsCoordinates() {
         LocationManager lm = (LocationManager) requireContext().getSystemService(Context.LOCATION_SERVICE);
         Location loc = null;
         if (lm != null) {
-            // Pick freshest fix across providers; a missing provider throws IllegalArgumentException
             for (String p : new String[]{LocationManager.GPS_PROVIDER,
                     LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER}) {
                 try {
@@ -252,7 +310,6 @@ public class ReportFragment extends Fragment {
             return;
         }
 
-        // Cached fix is null or >10 minutes old: actively request a real-time fix from hardware/network provider
         if (lm != null) {
             String activeProvider = null;
             for (String p : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
@@ -415,10 +472,8 @@ public class ReportFragment extends Fragment {
             btnSubmit.setEnabled(false);
             if (btnPhoto != null) btnPhoto.setEnabled(false);
             if (btnTriage != null) btnTriage.setEnabled(false);
-            tvTriageResult.setText("Analyzing the current form in the background…");
-        } else {
-            tvTriageResult.setText("Analyzing the current form in the background…");
         }
+        tvTriageResult.setText("Analyzing the current form in the background…");
     }
 
     private void finishPendingSubmission() {
@@ -443,7 +498,7 @@ public class ReportFragment extends Fragment {
         String locationStr = spinnerLocation.getSelectedItem().toString();
         String hazardType = spinnerHazardType.getSelectedItem().toString();
 
-        // 优先使用真实 GPS 坐标；若未获取 GPS 则正则解析所选地标真实坐标，绝不使用 Math.random()
+        // Prefer real GPS; otherwise parse the chosen landmark's coordinates. Never random.
         double lat = 3.1281, lon = 101.6505;
         if (realGpsLat != null && realGpsLon != null) {
             lat = realGpsLat;
@@ -463,11 +518,12 @@ public class ReportFragment extends Fragment {
         }
 
         String id = "CF-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
-        String timeStr = new SimpleDateFormat("'Today', HH:mm", Locale.getDefault()).format(new Date());
+        // Include the date: "Today, HH:mm" became wrong as soon as the app was reopened the next day
+        String timeStr = new SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(new Date());
         String myEmail = CampusRepository.getInstance()
                 .getProfileField("siswa_email", "demo.student@siswa.um.edu.my");
         String timeline = timeStr + " • Submitted by " + myEmail
-                + (capturedBitmap != null ? " (With Rule-Based Photo Estimate)" : " (Text Report)");
+                + (capturedBitmap != null ? " (With Photo Estimate)" : " (Text Report)");
 
         String photoUri = "";
         if (capturedBitmap != null) {
@@ -536,10 +592,5 @@ public class ReportFragment extends Fragment {
         }
         mainHandler.removeCallbacksAndMessages(null);
         super.onDestroyView();
-    }
-
-    private int dpToPx(int dp) {
-        return (int) TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP, dp, getResources().getDisplayMetrics());
     }
 }
