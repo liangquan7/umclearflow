@@ -15,10 +15,13 @@ import base64
 import json
 import os
 import re
+import time
+import threading
+from collections import deque
 from io import BytesIO
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -27,6 +30,26 @@ app = FastAPI(title="UM-ClearFlow Backend API (SDG 13 Campus Resilience)")
 from reports_api import router as reports_router  # noqa: E402  (shared reports, votes, admin, photos)
 
 app.include_router(reports_router)
+
+# Shared per-IP budget for the two Claude-backed endpoints. The in-memory limiter
+# is suitable for a single-process demo; use shared storage for multi-worker deploys.
+_RATE_LIMIT = 20
+_RATE_WINDOW_SECONDS = 60
+_rate_limit_hits: dict[str, deque] = {}
+_rate_limit_lock = threading.Lock()
+
+
+def _rate_limit(request: Request) -> None:
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    cutoff = now - _RATE_WINDOW_SECONDS
+    with _rate_limit_lock:
+        hits = _rate_limit_hits.setdefault(ip, deque())
+        while hits and hits[0] <= cutoff:
+            hits.popleft()
+        if len(hits) >= _RATE_LIMIT:
+            raise HTTPException(status_code=429, detail="Too many requests. Try again shortly.")
+        hits.append(now)
 
 VALID_HAZARD_TYPES = {
     "Flash Flood",
@@ -277,7 +300,8 @@ def build_chat_reply(req: ChatRequest, allow_llm: bool = True):
 
 
 @app.post("/api/v1/chat")
-async def chat_endpoint(req: ChatRequest):
+async def chat_endpoint(req: ChatRequest, request: Request):
+    _rate_limit(request)
     reply, engine = await run_in_threadpool(build_chat_reply, req)
     return {"reply": reply, "engine": engine}
 
@@ -353,11 +377,13 @@ def _llm_triage(raw: bytes, hint: str, title: str, description: str) -> Optional
 
 @app.post("/api/v1/triage")
 async def triage_endpoint(
+    request: Request,
     image: UploadFile = File(...),
     hint_type: Optional[str] = Form(None),
     title: Optional[str] = Form(""),
     description: Optional[str] = Form(""),
 ):
+    _rate_limit(request)
     allowed_types = {"image/jpeg", "image/png", "image/webp"}
     if image.content_type not in allowed_types:
         raise HTTPException(status_code=415, detail="Upload a JPEG, PNG, or WebP image.")

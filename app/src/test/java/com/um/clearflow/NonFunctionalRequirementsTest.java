@@ -58,7 +58,7 @@ public class NonFunctionalRequirementsTest {
                     int k = base + i;
                     // ~111 m apart -> outside the 50 m duplicate-merge radius
                     repo.addReport(new HazardReport(
-                            "CF-LOAD-" + k, "Load test " + k, "load", "FCSIT & Central Library (0,0)",
+                            "CF-LOAD-" + k, "Load test " + k, "load", "Load Test Zone (0,0)",
                             "Flash Flood", "Medium", "Submitted",
                             4.0 + k * 0.001, 101.0, "01 Jan, 10:00",
                             1, 0.8, "note"));
