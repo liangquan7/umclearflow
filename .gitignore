@@ -17,5 +17,7 @@
 local.properties
 __pycache__/
 *.py[cod]
+.pytest_cache/
 backend/clearflow.db
 backend/photos/
+backend/evaluation/eval_data_smoke/

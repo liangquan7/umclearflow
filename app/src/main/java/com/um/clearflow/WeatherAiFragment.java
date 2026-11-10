@@ -5,6 +5,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -14,13 +15,20 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
 public class WeatherAiFragment extends Fragment {
 
     private WeatherAiViewModel viewModel;
     private TextView tvWeatherLive;
     private TextView tvRiskMatrix;
     private TextView tvChatHistory;
+    private TextView tvBgAlertStatus;
+    private CheckBox cbBgWeatherAlerts;
     private EditText etChatInput;
+    private AlertPrefs alertPrefs;
 
     @Nullable
     @Override
@@ -28,11 +36,25 @@ public class WeatherAiFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_weather_ai, container, false);
         viewModel = new ViewModelProvider(requireActivity()).get(WeatherAiViewModel.class);
+        alertPrefs = new AlertPrefs(requireContext());
 
         tvWeatherLive = view.findViewById(R.id.tv_weather_live);
         tvRiskMatrix = view.findViewById(R.id.tv_risk_matrix);
         tvChatHistory = view.findViewById(R.id.tv_chat_history);
+        tvBgAlertStatus = view.findViewById(R.id.tv_bg_alert_status);
+        cbBgWeatherAlerts = view.findViewById(R.id.cb_bg_weather_alerts);
         etChatInput = view.findViewById(R.id.et_chat_input);
+
+        cbBgWeatherAlerts.setChecked(alertPrefs.isEnabled());
+        refreshBgAlertStatusText();
+        cbBgWeatherAlerts.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            alertPrefs.setEnabled(isChecked);
+            WeatherAlertScheduler.apply(requireContext());
+            if (isChecked) {
+                WeatherAlertScheduler.runNow(requireContext(), false);
+            }
+            refreshBgAlertStatusText();
+        });
 
         Button btnRefresh = view.findViewById(R.id.btn_refresh_weather);
         Button btnSimSquall = view.findViewById(R.id.btn_simulate_squall);
@@ -74,7 +96,10 @@ public class WeatherAiFragment extends Fragment {
             }
         });
 
-        viewModel.getWeatherSummary().observe(getViewLifecycleOwner(), text -> tvWeatherLive.setText(text));
+        viewModel.getWeatherSummary().observe(getViewLifecycleOwner(), text -> {
+            tvWeatherLive.setText(text);
+            refreshBgAlertStatusText();
+        });
         viewModel.getRiskMatrix().observe(getViewLifecycleOwner(), text -> tvRiskMatrix.setText(text));
         viewModel.getChatHistory().observe(getViewLifecycleOwner(), text -> tvChatHistory.setText(text));
 
@@ -86,5 +111,27 @@ public class WeatherAiFragment extends Fragment {
         viewModel.fetchLiveWeatherAndForecast(false);
 
         return view;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        refreshBgAlertStatusText();
+    }
+
+    private void refreshBgAlertStatusText() {
+        if (tvBgAlertStatus == null || alertPrefs == null) return;
+        if (!alertPrefs.isEnabled()) {
+            tvBgAlertStatus.setText("Background weather checks paused by user.");
+            return;
+        }
+        long lastMs = alertPrefs.lastCheckMs();
+        String summary = alertPrefs.lastSummary();
+        if (lastMs <= 0L) {
+            tvBgAlertStatus.setText("Background check: scheduled (~15 min) • " + summary);
+        } else {
+            String timeStr = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date(lastMs));
+            tvBgAlertStatus.setText("Last check " + timeStr + " • " + summary);
+        }
     }
 }

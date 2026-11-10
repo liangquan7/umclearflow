@@ -263,6 +263,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         CampusRepository.init(getApplicationContext());
+        WeatherAlertScheduler.apply(this);
         EdgeToEdge.enable(this);
         super.onCreate(savedInstanceState);
 

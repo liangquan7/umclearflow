@@ -1,0 +1,6 @@
+filename,hazard_type,severity,split,title,source,notes
+uma_flood_001.jpg,Flash Flood,Critical,dev,Water over the road at Pantai gate,own photo 2026-11-12,ankle-deep and moving; lane blocked
+uma_flood_002.jpg,Flash Flood,Medium,test,Ponding beside walkway,own photo 2026-11-12,shallow; walkway still usable
+uma_drain_001.jpg,Blocked Drain,Critical,test,Overflowing drain at FCSIT,own photo 2026-11-13,water spilling onto main path
+uma_tree_001.jpg,Fallen Tree,Critical,dev,Large branch across covered walkway,own photo 2026-11-14,path fully blocked
+uma_slope_001.jpg,Slope / Landslide,Medium,test,Soil washed onto steps,own photo 2026-11-14,small; passable on one side

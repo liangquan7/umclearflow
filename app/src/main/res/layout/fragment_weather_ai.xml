@@ -91,6 +91,26 @@
                     android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
+
+            <!-- Background WorkManager Weather Alerts toggle & status -->
+            <CheckBox
+                android:id="@+id/cb_bg_weather_alerts"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:checked="true"
+                android:minHeight="48dp"
+                android:text="Background weather alerts (~15 min via WorkManager)"
+                android:textColor="#1E293B"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tv_bg_alert_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Background check: waiting for first run..."
+                android:textColor="#64748B"
+                android:textSize="11sp" />
         </LinearLayout>
 
         <!-- FR 3.3 交互式 AI 应急聊天助手卡片 -->

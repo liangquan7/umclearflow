@@ -14,6 +14,7 @@ Run:
 import base64
 import json
 import os
+import re
 from io import BytesIO
 from typing import Optional
 
@@ -117,11 +118,77 @@ def _is_urgent(prompt: str) -> bool:
     return any(k in q for k in URGENT_KEYWORDS)
 
 
+MEDICAL_KEYWORDS = (
+    "dizzy", "faint", "chest pain", "can't breathe", "short of breath", "heat stroke", "heatstroke", "nausea",
+    "pening", "pitam", "sesak nafas", "sakit dada", "头晕", "晕倒", "胸痛", "中暑", "呼吸困难",
+)
+_PHONE_LIKE = re.compile(r"\+?\d[\d \-]{6,}\d")
+_URL_LIKE = re.compile(r"https?://\S+|www\.\S+")
+_HAZ_LINE = re.compile(r"^\W*\[(?P<sev>[^\]]{1,12})\]\s*(?P<rest>.*)$")
+
+
+def _detect_lang(prompt: str) -> str:
+    if re.search(r"[\u4e00-\u9fff]", prompt or ""):
+        return "zh"
+    low = (prompt or "").lower()
+    if any(w in low for w in ("tolong", "terperangkap", "banjir", "kecemasan", "cedera", "lemas", "adakah",
+                              "sila", "laluan", "dekat", "pening", "pitam")):
+        return "ms"
+    return "en"
+
+
+def _parse_hazards(text: Optional[str]):
+    """The hazard summary is built from user-submitted titles: strip phone numbers / links, cap lengths and keep
+    only (severity, title, location). Returned lines never carry more than 60 chars of free text."""
+    items = []
+    for raw in (text or "").splitlines()[:20]:
+        line = _URL_LIKE.sub("", _PHONE_LIKE.sub("", raw)).strip()
+        if not line:
+            continue
+        m = _HAZ_LINE.match(line)
+        sev = m.group("sev") if m else "?"
+        rest = m.group("rest") if m else line
+        if sev not in VALID_SEVERITIES:
+            sev = "?"
+        title, loc = rest.rsplit(" at ", 1) if " at " in rest else (rest, "")
+        items.append((sev, title.strip()[:60], loc.strip()[:70]))
+    return items
+
+
+def _hazard_lines(text: Optional[str], with_title: bool) -> str:
+    out = []
+    for sev, title, loc in _parse_hazards(text):
+        if with_title:
+            out.append(f"• [{sev}] {loc or '(location unknown)'} - {title}")
+        else:  # rule advisor: never echo free text back to the user
+            out.append(f"• [{sev}] {loc or title}")
+    return "\n".join(out)
+
+
+def _caveat(lang: str) -> str:
+    if lang == "ms":
+        return ("Maklumat ini adalah panduan awal dan bukan amaran rasmi. "
+                "Sila sahkan dengan sumber rasmi UM untuk keselamatan anda.")
+    if lang == "zh":
+        return "以下为预设参考信息，并非官方实时预警。请向 UM 官方渠道核实，注意安全。"
+    return ""
+
+
+def _urgent_block(lang: str) -> str:
+    if lang == "ms":
+        return (f"🚨 Kecemasan! Jangan berjalan dalam air banjir dan hubungi segera untuk keselamatan anda:\n{CONTACTS}\n"
+                "Sila sahkan arahan dengan sumber rasmi UM.")
+    if lang == "zh":
+        return f"🚨 如危及生命，请立即拨打：\n{CONTACTS}\n请勿涉水或驾车穿过积水，并向 UM 官方渠道核实最新指示。"
+    return (f"🚨 If this is life-threatening, call now:\n{CONTACTS}\n"
+            "Do not walk or drive through flood water; move to higher ground only if it is safe to do so.")
+
+
 def _llm_chat(req: ChatRequest) -> Optional[str]:
     client = _get_client()
     if client is None:
         return None
-    hazards = (req.active_hazards_summary or "").strip() or "None recorded on this device."
+    hazards = _hazard_lines(req.active_hazards_summary, with_title=True) or "None recorded on this device."
     context = (
         f"Current rain: {req.rainfall_mm:.1f} mm; forecast next 3h: {req.forecast_3h_mm:.1f} mm\n"
         f"User mobility mode: {req.mobility_mode}\n"
@@ -141,23 +208,32 @@ def _llm_chat(req: ChatRequest) -> Optional[str]:
 
 def _rule_reply(req: ChatRequest) -> str:
     q = req.prompt.lower()
+    lang = _detect_lang(req.prompt)
+    prefix = (_caveat(lang) + "\n") if lang != "en" else ""
     rain_info = f"(Current rain: {req.rainfall_mm:.1f} mm, Next 3h forecast: {req.forecast_3h_mm:.1f} mm)"
-    hazards_clean = (req.active_hazards_summary or "").strip()
+    lines = _hazard_lines(req.active_hazards_summary, with_title=False)
     hazards_context = (
-        f"\nActive Unresolved Campus Hazards:\n{hazards_clean}"
-        if hazards_clean
+        f"\nActive Unresolved Campus Hazards (device-local, unverified):\n{lines}"
+        if lines
         else "\nActive Unresolved Campus Hazards: None currently recorded on device."
     )
 
+    if _is_urgent(req.prompt):  # safety first, regardless of what else the question mentions
+        return prefix + _urgent_block(lang) + hazards_context
+    if any(k in q for k in MEDICAL_KEYWORDS):
+        return (prefix + "I can't diagnose medical conditions. If you feel faint, have chest pain or trouble breathing, "
+                f"get help now:\n{CONTACTS}\nFor heat: move to shade or an air-conditioned place and drink water.")
     if any(k in q for k in ["shelter", "evacuat", "where to go", "避难"]):
         return (
-            f"[Campus Rule Advisor; preset demo locations, not an official live shelter-status feed] {rain_info} "
+            prefix
+            + f"[Campus Rule Advisor; preset demo locations, not an official live shelter-status feed] {rain_info} "
             f"Based on your mode ({req.mobility_mode}), preset shelter locations for this demonstration are:\n"
             f"{SHELTERS}{hazards_context}"
         )
     if any(k in q for k in ["kk8", "kk12", "route", "fcsit", "pantai", "safe", "walk", "bus"]):
         return (
-            f"[Campus Rule Advisor; not live routing] {rain_info} Route idea for [{req.mobility_mode}]:\n"
+            prefix
+            + f"[Campus Rule Advisor; not live routing] {rain_info} Route idea for [{req.mobility_mode}]:\n"
             "• Avoid Lingkungan Budi valley road & Jalan Ilmu culvert during heavy rain.\n"
             "• The Map tab can draw a road route that avoids hazards saved on this device. This service has no live "
             "road closure or accessibility data; verify conditions and official UM guidance before moving."
@@ -165,14 +241,16 @@ def _rule_reply(req: ChatRequest) -> str:
         )
     if any(k in q for k in ["thunder", "lightning", "heat", "haze", "jerebu", "tip", "sop"]):
         return (
-            "[Campus Rule Advisor] UM Multi-Hazard Guidance:\n"
+            prefix
+            + "[Campus Rule Advisor] UM Multi-Hazard Guidance:\n"
             "• Flash Flood: Never wade through moving water >15cm or near open storm drains.\n"
             "• Thunderstorm / Fallen Tree: Stay clear of mature roadside trees along Lingkungan Budi.\n"
             "• Extreme Heat / Haze: Hydrate at KPS water stations; wear N95 if API > 100."
             f"{hazards_context}"
         )
     return (
-        f"[Campus Rule Advisor] {rain_info}\n{CONTACTS}{hazards_context}\n"
+        prefix
+        + f"[Campus Rule Advisor] {rain_info}\n{CONTACTS}{hazards_context}\n"
         "The Map tab draws routes against locally recorded reports; it is not an official evacuation instruction."
     )
 
@@ -187,18 +265,21 @@ async def health_check():
     }
 
 
-@app.post("/api/v1/chat")
-async def chat_endpoint(req: ChatRequest):
-    llm = await run_in_threadpool(_llm_chat, req)
+def build_chat_reply(req: ChatRequest, allow_llm: bool = True):
+    """Returns (reply_text, engine). Shared by the endpoint and by evaluation/eval_chat.py."""
+    llm = _llm_chat(req) if allow_llm else None
     if llm:
         urgent = (
             f"🚨 If this is life-threatening, call now:\n{CONTACTS}\n\n" if _is_urgent(req.prompt) else ""
         )
-        return {
-            "reply": "[AI Advisor • Claude, grounded on preset UM data + on-device reports]\n" + urgent + llm,
-            "engine": "llm",
-        }
-    return {"reply": _rule_reply(req), "engine": "rules"}
+        return "[AI Advisor • Claude, grounded on preset UM data + on-device reports]\n" + urgent + llm, "llm"
+    return _rule_reply(req), "rules"
+
+
+@app.post("/api/v1/chat")
+async def chat_endpoint(req: ChatRequest):
+    reply, engine = await run_in_threadpool(build_chat_reply, req)
+    return {"reply": reply, "engine": engine}
 
 
 # ----------------------------------------------------------------------------- triage

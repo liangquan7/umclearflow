@@ -1,6 +1,7 @@
 package com.um.clearflow;
 
-import org.json.JSONArray;
+import android.content.Context;
+
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -23,17 +24,8 @@ public class WeatherAiViewModel extends ViewModel {
     private final CampusRepository repository = CampusRepository.getInstance();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
-    private long lastWeatherAlertAt = 0L;
     private volatile boolean chatPending = false;
     private volatile int lastMaxProb = 50;
-    private static final long ALERT_COOLDOWN_MS = 30 * 60 * 1000L;
-
-    private boolean shouldSendWeatherAlert() {
-        long now = System.currentTimeMillis();
-        if (now - lastWeatherAlertAt < ALERT_COOLDOWN_MS) return false;
-        lastWeatherAlertAt = now;
-        return true;
-    }
 
     private final MutableLiveData<String> weatherSummaryLiveData = new MutableLiveData<>(
             "Fetching live Open-Meteo 6-hour forecast for Universiti Malaya (3.1245, 101.6525)...");
@@ -66,111 +58,55 @@ public class WeatherAiViewModel extends ViewModel {
         computeZoneRiskFusion(repository.getLatestRainfallMm(), repository.getForecast3hRainMm(), lastMaxProb);
     }
 
-    // FR 3.2: 请求 Open-Meteo 当前气象 + 未来 6 小时逐时降雨与概率
+    // FR 3.2 / 5.3: current weather + next 6 hours. Parsing and alert rules are shared with the background worker.
     public void fetchLiveWeatherAndForecast(boolean simulateSquallForDemo) {
         executor.execute(() -> {
+            WeatherSnapshot s;
             if (simulateSquallForDemo) {
-                double simCurrent = 14.5;
-                double simNext3h = 38.0;
-                lastMaxProb = 95;
-                repository.updateWeatherMetrics(simCurrent, simNext3h);
-
-                weatherSummaryLiveData.postValue(String.format(Locale.US,
-                        "🌧️ [SIMULATED MONSOON SQUALL - DEMO MODE]\n" +
-                                "• Current Rainfall: %.1f mm/h | Temp: 25.4°C | Wind: 32.0 km/h\n" +
-                                "• Next 3-Hour Cumulative Forecast: %.1f mm (95%% Probability)\n" +
-                                "• Threshold Note: Demo Alert Threshold >= 15.0 mm/3h exceeded!\n" +
-                                "📌 FR 5.3 Multi-Hazard Tip: Avoid Lingkungan Budi roadside trees (gusts 32km/h) & use KPS covered walkway.",
-                        simCurrent, simNext3h));
-
-                computeZoneRiskFusion(simCurrent, simNext3h, 95);
-                repository.sendLocalAlertNotification(
-                        "[DEMO] Extreme Weather Warning (FR 5.3)",
-                        "Simulated: forecast 3h rain 38.0mm. This is a demo alert, not a real warning."
-                );
-                return;
+                s = WeatherSnapshot.simulatedSquall();
+            } else {
+                try {
+                    s = WeatherService.fetch();
+                } catch (Exception e) {
+                    double fallbackRain = repository.getLatestRainfallMm();
+                    lastMaxProb = 50;
+                    weatherSummaryLiveData.postValue(
+                            "⚠️ Offline / Network Timeout reaching Open-Meteo.\n" +
+                                    "Using cached rainfall (" + fallbackRain + " mm) & SQLite hazard weights for risk estimation.");
+                    computeZoneRiskFusion(fallbackRain, fallbackRain * 2.0, 50);
+                    return;
+                }
             }
 
-            try {
-                String urlStr = "https://api.open-meteo.com/v1/forecast"
-                        + "?latitude=3.1245&longitude=101.6525"
-                        + "&current=temperature_2m,precipitation,wind_speed_10m"
-                        + "&hourly=precipitation,precipitation_probability"
-                        + "&forecast_hours=6&timezone=Asia%2FKuala_Lumpur";
+            lastMaxProb = s.maxProbPct;
+            repository.updateWeatherMetrics(s.currentRainMm, s.next3hRainMm);
 
-                URL url = new URL(urlStr);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-
-                BufferedReader reader;
-                try {
-                    if (conn.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                        throw new java.io.IOException("Open-Meteo HTTP " + conn.getResponseCode());
-                    }
-                    reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
-                } catch (Exception ex) {
-                    conn.disconnect();
-                    throw ex;
-                }
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-                reader.close();
-                conn.disconnect();
-
-                JSONObject root = new JSONObject(sb.toString());
-                JSONObject current = root.getJSONObject("current");
-                double temp = current.optDouble("temperature_2m", 28.0);
-                double currentRain = current.optDouble("precipitation", 0.0);
-                double wind = current.optDouble("wind_speed_10m", 5.0);
-
-                JSONObject hourly = root.getJSONObject("hourly");
-                JSONArray rainArr = hourly.getJSONArray("precipitation");
-                JSONArray probArr = hourly.getJSONArray("precipitation_probability");
-
-                double next3hRain = 0.0;
-                double next6hRain = 0.0;
-                int maxProb = 0;
-
-                for (int i = 0; i < rainArr.length(); i++) {
-                    double r = rainArr.optDouble(i, 0.0);
-                    int p = probArr.optInt(i, 0);
-                    if (i < 3) next3hRain += r;
-                    next6hRain += r;
-                    if (p > maxProb) maxProb = p;
-                }
-
-                lastMaxProb = maxProb;
-                repository.updateWeatherMetrics(currentRain, next3hRain);
-
-                String summary = String.format(Locale.US,
+            if (simulateSquallForDemo) {
+                weatherSummaryLiveData.postValue(String.format(Locale.US,
+                        "🌧️ [SIMULATED MONSOON SQUALL - DEMO MODE]\n" +
+                                "• Current Rainfall: %.1f mm/h | Temp: %.1f°C | Wind: %.1f km/h\n" +
+                                "• Next 3-Hour Cumulative Forecast: %.1f mm (%d%% Probability)\n" +
+                                "• Demo thresholds exceeded; this is simulated data, not a real warning.\n" +
+                                "📌 FR 5.3 Multi-Hazard Tip: %s",
+                        s.currentRainMm, s.tempC, s.windKmh, s.next3hRainMm, s.maxProbPct,
+                        WeatherService.buildResilienceTip(s.tempC, s.currentRainMm, s.next3hRainMm, s.windKmh)));
+            } else {
+                weatherSummaryLiveData.postValue(String.format(Locale.US,
                         "⛅ Live Open-Meteo Telemetry (UM Campus 3.1245°N, 101.6525°E)\n" +
                                 "• Current: %.1f°C | Rain: %.1f mm | Wind: %.1f km/h\n" +
                                 "• Next 3h Forecast Sum: %.1f mm | Next 6h Sum: %.1f mm\n" +
                                 "• Max Rain Probability (6h): %d%% (Alert Threshold: 15.0 mm/3h)\n" +
-                                "📌 FR 5.3 Resilience Tip: " + buildResilienceTip(temp, currentRain, next3hRain, wind),
-                        temp, currentRain, wind, next3hRain, next6hRain, maxProb);
-                weatherSummaryLiveData.postValue(summary);
+                                "📌 FR 5.3 Resilience Tip: %s",
+                        s.tempC, s.currentRainMm, s.windKmh, s.next3hRainMm, s.next6hRainMm, s.maxProbPct,
+                        WeatherService.buildResilienceTip(s.tempC, s.currentRainMm, s.next3hRainMm, s.windKmh)));
+            }
 
-                computeZoneRiskFusion(currentRain, next3hRain, maxProb);
+            computeZoneRiskFusion(s.currentRainMm, s.next3hRainMm, s.maxProbPct);
 
-                if ((currentRain >= 5.0 || next3hRain >= 15.0 || temp >= 34.5 || wind >= 28.0) && shouldSendWeatherAlert()) {
-                    repository.sendLocalAlertNotification(
-                            "🌧️ UM Flood Forecast Alert (FR 3.2/5.3)",
-                            String.format(Locale.US, "Next 3h forecast: %.1f mm (%d%% prob). Check safe detour routes.", next3hRain, maxProb)
-                    );
-                }
-            } catch (Exception e) {
-                double fallbackRain = repository.getLatestRainfallMm();
-                lastMaxProb = 50;
-                weatherSummaryLiveData.postValue(
-                        "⚠️ Offline / Network Timeout reaching Open-Meteo.\n" +
-                                "Using cached rainfall (" + fallbackRain + " mm) & SQLite hazard weights for risk estimation.");
-                computeZoneRiskFusion(fallbackRain, fallbackRain * 2.0, 50);
+            // Shares its cooldown with the background worker: the same alert is never shown twice.
+            Context appContext = repository.getAppContext();
+            if (appContext != null) {
+                WeatherAlertDispatcher.dispatch(appContext, s, simulateSquallForDemo);
             }
         });
     }
@@ -223,19 +159,6 @@ public class WeatherAiViewModel extends ViewModel {
         return "LOW RISK 🟢";
     }
 
-    private String buildResilienceTip(double tempC, double rainMm, double next3hMm, double windKmh) {
-        if (rainMm >= 5.0 || next3hMm >= 15.0) {
-            return "Monsoon Squall SOP — Avoid low-lying Lingkungan Budi & Jalan Ilmu culverts; take KPS elevated covered walkway.";
-        }
-        if (windKmh >= 24.0) {
-            return "Thunderstorm & Gust SOP — Watch for falling branches along KK12 & Pantai Gate; shelter inside concrete buildings.";
-        }
-        if (tempC >= 33.0) {
-            return "Extreme Heat & Haze SOP — Hydrate at KPS water stations, minimize outdoor walking 12:00-15:00, wear N95 if API > 100.";
-        }
-        return "Clear/Moderate Weather — Report blocked storm grates early via Report tab to prevent flash ponding.";
-    }
-
     // FR 3.3: 真实用户提问输入 -> 优先请求后端 FastAPI LLM (/api/v1/chat)，离线/无后端时自动使用本地 RAG 状态引擎
     public boolean sendUserChatPrompt(String userPrompt) {
         if (userPrompt == null || userPrompt.trim().isEmpty()) return false;
@@ -285,7 +208,7 @@ public class WeatherAiViewModel extends ViewModel {
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setConnectTimeout(3000);
-            conn.setReadTimeout(20000);
+            conn.setReadTimeout(20000);   // an LLM reply can take several seconds
             conn.setDoOutput(true);
 
             JSONObject body = new JSONObject();
@@ -327,8 +250,9 @@ public class WeatherAiViewModel extends ViewModel {
             for (HazardReport r : reports) {
                 if (!"Resolved".equalsIgnoreCase(r.status)) {
                     activeCount++;
+                    // Titles are free text from other users since reports are synced: show severity + place only
                     activeLocations.append("• [").append(r.severity).append("] ")
-                            .append(r.title).append(" at ").append(r.locationName).append("\n");
+                            .append(r.locationName).append("\n");
                 }
             }
         }
@@ -338,7 +262,18 @@ public class WeatherAiViewModel extends ViewModel {
         double forecast3h = repository.getForecast3hRainMm();
 
         StringBuilder answer = new StringBuilder();
-        if (lower.contains("shelter") || lower.contains("evacuat") || lower.contains("where to go") || lower.contains("避难")) {
+        boolean urgent = lower.contains("trapped") || lower.contains("drown") || lower.contains("injur")
+                || lower.contains("bleeding") || lower.contains("unconscious") || lower.contains("help me")
+                || lower.contains("emergency") || lower.contains("tolong") || lower.contains("terperangkap")
+                || lower.contains("kecemasan") || lower.contains("救命") || lower.contains("被困")
+                || lower.contains("受伤") || lower.contains("紧急");
+        if (urgent) {
+            answer.append("🚨 If this is life-threatening, call now:\n")
+                    .append("• Malaysia Emergency Services: ").append(EmergencyContacts.NATIONAL_EMERGENCY).append("\n")
+                    .append("• UM Security Office (24h): ").append(EmergencyContacts.UM_SECURITY_DISPLAY).append("\n")
+                    .append("• UM Medical Centre (UMMC): ").append(EmergencyContacts.UMMC_DISPLAY).append("\n")
+                    .append("Do not walk or drive through flood water. Use the red 'SOS UM' button to share your location.");
+        } else if (lower.contains("shelter") || lower.contains("evacuat") || lower.contains("where to go") || lower.contains("避难")) {
             answer.append("Based on your mobility preference (").append(mobility).append("), here are the official UM Evacuation Shelters:\n");
             for (CampusRepository.ShelterInfo s : repository.getCampusShelters()) {
                 answer.append("🏛️ ").append(s.name).append(" — ").append(s.description).append("\n");

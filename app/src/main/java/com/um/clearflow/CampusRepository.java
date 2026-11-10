@@ -182,6 +182,10 @@ public class CampusRepository {
         return instance;
     }
 
+    public Context getAppContext() {
+        return appContext;
+    }
+
     private void loadFromSqliteOrSeed() {
         executorService.execute(() -> {
             synchronized (reportsList) {
@@ -1299,11 +1303,15 @@ public class CampusRepository {
 
     // FR 5.3: 触发系统状态栏本地通知
     public void sendLocalAlertNotification(String title, String message) {
-        if (appContext == null) return;
+        sendLocalAlertNotification((int) (System.currentTimeMillis() & 0xFFFFFFF), title, message);
+    }
+
+    public boolean sendLocalAlertNotification(int notificationId, String title, String message) {
+        if (appContext == null) return false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
-                return;
+                return false;
             }
         }
         NotificationCompat.Builder builder = new NotificationCompat.Builder(appContext, CHANNEL_ID)
@@ -1315,7 +1323,8 @@ public class CampusRepository {
                 .setAutoCancel(true);
 
         NotificationManagerCompat.from(appContext)
-                .notify((int) (System.currentTimeMillis() & 0xFFFFFFF), builder.build());
+                .notify(notificationId, builder.build());
+        return true;
     }
 
     private void createNotificationChannel() {
