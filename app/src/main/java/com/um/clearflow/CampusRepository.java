@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.database.DatabaseUtils;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.graphics.Bitmap;
@@ -20,20 +21,33 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Local-first repository. Every user action is applied to SQLite immediately (so the UI is instant and works
+ * offline) and, when a backend is configured, also queued in an "outbox" table. {@link #requestSync()} flushes the
+ * outbox to the FastAPI server in order and then pulls the shared report list. The server is authoritative.
+ */
 public class CampusRepository {
 
     public static final String API_BASE_URL = BuildConfig.API_BASE_URL;
@@ -45,6 +59,13 @@ public class CampusRepository {
     private long pinLockedUntil = 0L;
     public static final String CHANNEL_ID = "um_clearflow_alerts";
 
+    // Outbox processing results
+    private static final int OP_DONE = 0;   // delivered: remove from outbox
+    private static final int OP_DROP = 1;   // permanently rejected (4xx): retrying can never succeed
+    private static final int OP_RETRY = 2;  // network/5xx/429: keep and try again later
+    private static final int PULL_LIMIT = 200;
+    private static final int MAX_PHOTO_DOWNLOADS_PER_SYNC = 5;
+
     private static volatile CampusRepository instance;
     private Context appContext;
     private ClearFlowDbHelper dbHelper;
@@ -53,12 +74,22 @@ public class CampusRepository {
     private final List<HazardReport> reportsList = new ArrayList<>();
     private final Set<String> upvotedIds = new HashSet<>();
     private final Set<String> resolveVotedIds = new HashSet<>();
+    private final Set<String> syncedIds = new HashSet<>();   // ids known to exist on the server (guarded by reportsList)
 
     private final MutableLiveData<List<HazardReport>> reportsLiveData = new MutableLiveData<>();
     private final MutableLiveData<String> userRoleLiveData = new MutableLiveData<>("UM Student / Staff");
     private final MutableLiveData<String> broadcastBannerLiveData = new MutableLiveData<>("");
+    private final MutableLiveData<String> syncStatusLiveData = new MutableLiveData<>("Sync: not started");
 
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final ExecutorService syncExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean syncRunning = new AtomicBoolean(false);
+    private final AtomicBoolean syncAgain = new AtomicBoolean(false);
+    private SyncClient syncClient;
+    private String deviceId;
+    private volatile String adminToken = null;      // server bearer token, only while the demo admin view is unlocked
+    private volatile boolean serverUnreachable = false;
+
     private volatile double latestRainfallMm = 0.0;
     private volatile double forecast3hRainMm = 0.0;
     // Synchronous role cache: postValue() is async, so isAdmin() must not read LiveData
@@ -92,33 +123,54 @@ public class CampusRepository {
         }
     }
 
+    private static class OutboxOp {
+        final long rowId;
+        final String op;
+        final String reportId;
+        final String payload;
+
+        OutboxOp(long rowId, String op, String reportId, String payload) {
+            this.rowId = rowId;
+            this.op = op;
+            this.reportId = reportId;
+            this.payload = payload;
+        }
+    }
+
     private CampusRepository(Context context) {
         if (context != null) {
-            this.appContext = context.getApplicationContext();
-            this.dbHelper = new ClearFlowDbHelper(appContext);
-            this.prefs = appContext.getSharedPreferences("um_clearflow_prefs", Context.MODE_PRIVATE);
-            createNotificationChannel();
-            // Admin access is a session privilege; never restore it from editable local preferences.
-            currentRole = "UM Student / Staff";
-            prefs.edit().remove("user_role").apply();
-            userRoleLiveData.postValue(currentRole);
-            String savedBroadcast = prefs.getString("admin_broadcast", "");
-            broadcastBannerLiveData.postValue(savedBroadcast);
+            attachContext(context);
         }
         loadFromSqliteOrSeed();
+    }
+
+    private void attachContext(Context context) {
+        appContext = context.getApplicationContext();
+        dbHelper = new ClearFlowDbHelper(appContext);
+        prefs = appContext.getSharedPreferences("um_clearflow_prefs", Context.MODE_PRIVATE);
+        createNotificationChannel();
+        // Admin access is a session privilege; never restore it from editable local preferences.
+        currentRole = "UM Student / Staff";
+        prefs.edit().remove("user_role").apply();
+        userRoleLiveData.postValue(currentRole);
+        broadcastBannerLiveData.postValue(prefs.getString("admin_broadcast", ""));
+
+        // Random per-install id: lets the server enforce one vote per device. Not an account.
+        String id = prefs.getString("device_id", null);
+        if (id == null) {
+            id = UUID.randomUUID().toString();
+            prefs.edit().putString("device_id", id).apply();
+        }
+        deviceId = id;
+        String base = API_BASE_URL != null ? API_BASE_URL.trim() : "";
+        syncClient = base.isEmpty() ? null : new SyncClient(base);
     }
 
     public static synchronized void init(Context context) {
         if (instance == null) {
             instance = new CampusRepository(context);
         } else if (instance.appContext == null && context != null) {
-            instance.appContext = context.getApplicationContext();
-            instance.dbHelper = new ClearFlowDbHelper(instance.appContext);
-            instance.prefs = instance.appContext.getSharedPreferences("um_clearflow_prefs", Context.MODE_PRIVATE);
-            instance.createNotificationChannel();
-            instance.currentRole = "UM Student / Staff";
-            instance.prefs.edit().remove("user_role").apply();
-            instance.userRoleLiveData.postValue(instance.currentRole);
+            instance.attachContext(context);
             instance.loadFromSqliteOrSeed();
         }
     }
@@ -134,13 +186,16 @@ public class CampusRepository {
         executorService.execute(() -> {
             synchronized (reportsList) {
                 reportsList.clear();
+                syncedIds.clear();
                 if (dbHelper != null) {
                     SQLiteDatabase db = dbHelper.getWritableDatabase();
-                    Cursor c = db.rawQuery("SELECT * FROM hazard_reports ORDER BY rowid DESC", null);
+                    Cursor c = db.rawQuery("SELECT * FROM hazard_reports ORDER BY createdAt DESC, rowid DESC", null);
                     int photoColIdx = c.getColumnIndex("photoUri");
+                    int createdIdx = c.getColumnIndex("createdAt");
+                    int syncedIdx = c.getColumnIndex("synced");
                     while (c.moveToNext()) {
                         String photoUri = photoColIdx >= 0 ? c.getString(photoColIdx) : "";
-                        reportsList.add(new HazardReport(
+                        HazardReport r = new HazardReport(
                                 c.getString(c.getColumnIndexOrThrow("id")),
                                 c.getString(c.getColumnIndexOrThrow("title")),
                                 c.getString(c.getColumnIndexOrThrow("description")),
@@ -158,10 +213,18 @@ public class CampusRepository {
                                 c.getString(c.getColumnIndexOrThrow("reporterEmail")),
                                 c.getString(c.getColumnIndexOrThrow("timeline")),
                                 photoUri
-                        ));
+                        );
+                        if (createdIdx >= 0) {
+                            long created = c.getLong(createdIdx);
+                            if (created > 0) r.createdAt = created;
+                        }
+                        if (syncedIdx >= 0 && c.getInt(syncedIdx) == 1) syncedIds.add(r.id);
+                        reportsList.add(r);
                     }
                     c.close();
 
+                    upvotedIds.clear();
+                    resolveVotedIds.clear();
                     Cursor vc = db.rawQuery("SELECT report_id, vote_type FROM user_votes", null);
                     while (vc.moveToNext()) {
                         String rId = vc.getString(0);
@@ -226,6 +289,11 @@ public class CampusRepository {
                 "demo.seed@siswa.um.edu.my",
                 "12:40 • Submitted (Demo Seed)"
         );
+        // Seeds stay local-only (never queued for sync) and sort in the order listed here.
+        long now = System.currentTimeMillis();
+        r1.createdAt = now;
+        r2.createdAt = now - 1;
+        r3.createdAt = now - 2;
 
         reportsList.add(r1);
         reportsList.add(r2);
@@ -259,6 +327,8 @@ public class CampusRepository {
         cv.put("reporterEmail", r.reporterEmail);
         cv.put("timeline", r.timeline);
         cv.put("photoUri", r.photoUri != null ? r.photoUri : "");
+        cv.put("createdAt", r.createdAt);
+        // Update first: REPLACE would delete + re-insert the row and change its rowid
         int rows = db.update("hazard_reports", cv, "id=?", new String[]{r.id});
         if (rows == 0) {
             db.insertWithOnConflict("hazard_reports", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
@@ -306,6 +376,10 @@ public class CampusRepository {
         return broadcastBannerLiveData;
     }
 
+    public LiveData<String> getSyncStatusLiveData() {
+        return syncStatusLiveData;
+    }
+
     public String getCurrentUserRole() {
         String val = currentRole;
         return val != null ? val : "UM Student / Staff";
@@ -323,6 +397,7 @@ public class CampusRepository {
         if (!pin.isEmpty() && constantTimeEquals(sha256Hex(PIN_SALT + pin), BuildConfig.ADMIN_PIN_HASH)) {
             failedPinAttempts = 0;
             setRoleInternal("JPPHB Maintenance Admin");
+            fetchAdminTokenAsync(pin);
             return true;
         }
         failedPinAttempts++;
@@ -331,6 +406,12 @@ public class CampusRepository {
             pinLockedUntil = now + PIN_LOCKOUT_MS;
         }
         return false;
+    }
+
+    /** The server checks the PIN again and issues a short-lived token; without it status changes stay local. */
+    private void fetchAdminTokenAsync(String pin) {
+        if (syncClient == null || appContext == null) return;
+        syncExecutor.execute(() -> adminToken = syncClient.adminLogin(pin));
     }
 
     /** Remaining lockout in ms after too many wrong PINs (0 = not locked). */
@@ -357,6 +438,7 @@ public class CampusRepository {
     }
 
     public void switchToStudentRole() {
+        adminToken = null;
         setRoleInternal("UM Student / Staff");
     }
 
@@ -390,8 +472,8 @@ public class CampusRepository {
                                 existing.latitude, existing.longitude,
                                 newReport.latitude, newReport.longitude);
                         if (distMeters <= 50.0) {
-                            existing.upvotes += 1;
-                            upvotedIds.add(existing.id);
+                            boolean firstVote = upvotedIds.add(existing.id);
+                            if (firstVote) existing.upvotes += 1;
                             if (dbHelper != null) {
                                 ContentValues cv = new ContentValues();
                                 cv.put("report_id", existing.id);
@@ -399,9 +481,11 @@ public class CampusRepository {
                                 dbHelper.getWritableDatabase().insertWithOnConflict(
                                         "user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
                             }
+                            boolean attachedPhoto = false;
                             if ((existing.photoUri == null || existing.photoUri.isEmpty())
                                     && newReport.photoUri != null && !newReport.photoUri.isEmpty()) {
                                 existing.photoUri = newReport.photoUri;
+                                attachedPhoto = true;
                             }
                             boolean upgradedToCritical = !"Critical".equalsIgnoreCase(existing.severity)
                                     && "Critical".equalsIgnoreCase(newReport.severity);
@@ -409,10 +493,15 @@ public class CampusRepository {
                                 existing.severity = "Critical";
                             }
                             existing.timeline = existing.timeline + "\n" + nowTime
-                                    + " • Merged nearby duplicate report (<50m, Upvotes +1"
+                                    + " • Merged nearby duplicate report (<50m, Upvotes +" + (firstVote ? 1 : 0)
                                     + (upgradedToCritical ? ", escalated to Critical)" : ")");
                             insertOrUpdateReportDb(existing);
                             publishSnapshotLocked();
+                            // Server dedupes votes per device, so this is safe to resend
+                            enqueueOp("UPVOTE", existing.id, payload("demo", false));
+                            if (attachedPhoto) {
+                                enqueueOp("PHOTO", existing.id, payload("path", existing.photoUri));
+                            }
                             if (upgradedToCritical) {
                                 sendLocalAlertNotification(
                                         "⚠️ Hazard Escalated to Critical",
@@ -427,6 +516,10 @@ public class CampusRepository {
                 reportsList.add(0, new HazardReport(newReport));
                 insertOrUpdateReportDb(newReport);
                 publishSnapshotLocked();
+                enqueueOp("CREATE", newReport.id, null);
+                if (newReport.photoUri != null && !newReport.photoUri.isEmpty()) {
+                    enqueueOp("PHOTO", newReport.id, payload("path", newReport.photoUri));
+                }
 
                 if ("Critical".equalsIgnoreCase(newReport.severity)) {
                     sendLocalAlertNotification(
@@ -458,9 +551,10 @@ public class CampusRepository {
                             cv.put("report_id", id);
                             cv.put("vote_type", "UPVOTE");
                             dbHelper.getWritableDatabase().insertWithOnConflict(
-                                    "user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
+                                     "user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
                         }
                         insertOrUpdateReportDb(r);
+                        enqueueOp("UPVOTE", id, payload("demo", false));
                         break;
                     }
                 }
@@ -506,6 +600,8 @@ public class CampusRepository {
                                     "user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
                         }
                         insertOrUpdateReportDb(r);
+                        // "demo" only has an effect when the server runs with CLEARFLOW_DEMO=1
+                        enqueueOp("RESOLVE", id, payload("demo", alreadyVotedOnDevice));
                         break;
                     }
                 }
@@ -529,12 +625,355 @@ public class CampusRepository {
                         r.status = newStatus;
                         r.timeline = r.timeline + "\n" + nowTime + " • Status updated to [" + newStatus + "] by JPPHB Admin";
                         insertOrUpdateReportDb(r);
+                        enqueueOp("STATUS", id, payload("status", newStatus));
                         break;
                     }
                 }
                 publishSnapshotLocked();
             }
         });
+    }
+
+    // ------------------------------------------------------------------ Sync (outbox + pull)
+
+    private static JSONObject payload(String key, Object value) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put(key, value);
+        } catch (JSONException ignored) {}
+        return o;
+    }
+
+    private static JSONObject parseJson(String s) {
+        try {
+            return new JSONObject(s != null ? s : "{}");
+        } catch (JSONException e) {
+            return new JSONObject();
+        }
+    }
+
+    /** Queue a change for the server. No-op when there is no database (unit tests) or no backend configured. */
+    private void enqueueOp(String op, String reportId, JSONObject payload) {
+        if (dbHelper == null || syncClient == null) return;
+        ContentValues cv = new ContentValues();
+        cv.put("op", op);
+        cv.put("report_id", reportId);
+        cv.put("payload", payload != null ? payload.toString() : "{}");
+        dbHelper.getWritableDatabase().insert("outbox", null, cv);
+        requestSync();
+    }
+
+    /** Safe to call from any thread, as often as you like: runs are coalesced. */
+    public void requestSync() {
+        if (dbHelper == null || syncClient == null) return;
+        syncAgain.set(true);
+        if (!syncRunning.compareAndSet(false, true)) return;
+        syncExecutor.execute(() -> {
+            try {
+                while (syncAgain.getAndSet(false)) {
+                    try {
+                        runSyncOnce();
+                    } catch (RuntimeException e) {
+                        postSyncStatus(0, true);
+                    }
+                }
+            } finally {
+                syncRunning.set(false);
+            }
+        });
+    }
+
+    private void runSyncOnce() {
+        int pending = flushOutbox();
+        if (pending == 0) {
+            pullRemote();
+        } else {
+            // Do not pull while local changes are unsent: it would overwrite them with older server values
+            postSyncStatus(pending, serverUnreachable);
+        }
+    }
+
+    private int flushOutbox() {
+        SQLiteDatabase db = dbHelper.getWritableDatabase();
+        List<OutboxOp> ops = new ArrayList<>();
+        try (Cursor c = db.rawQuery("SELECT id, op, report_id, payload FROM outbox ORDER BY id ASC", null)) {
+            while (c.moveToNext()) {
+                ops.add(new OutboxOp(c.getLong(0), c.getString(1), c.getString(2), c.getString(3)));
+            }
+        }
+        serverUnreachable = false;
+        for (OutboxOp op : ops) {
+            int result = executeOp(op);
+            if (result == OP_RETRY) {
+                serverUnreachable = true;
+                break; // keep order: later ops may depend on this one
+            }
+            db.delete("outbox", "id=?", new String[]{String.valueOf(op.rowId)});
+        }
+        return (int) DatabaseUtils.queryNumEntries(db, "outbox");
+    }
+
+    private static int classify(SyncClient.Response r) {
+        if (r.ok()) return OP_DONE;
+        if (r.code == SyncClient.NETWORK_ERROR || r.code >= 500 || r.code == 429) return OP_RETRY;
+        return OP_DROP; // 404 unknown report (e.g. local demo seed), 401/403, 422 ...
+    }
+
+    private JSONObject voteBody(boolean demo) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("device_id", deviceId);
+            o.put("demo", demo);
+        } catch (JSONException ignored) {}
+        return o;
+    }
+
+    private int executeOp(OutboxOp op) {
+        String id = op.reportId;
+        JSONObject p = parseJson(op.payload);
+        switch (op.op) {
+            case "CREATE":
+                return execCreate(id);
+            case "UPVOTE":
+                return classify(syncClient.postJson("api/v1/reports/" + id + "/upvote", voteBody(false), null));
+            case "RESOLVE":
+                return classify(syncClient.postJson("api/v1/reports/" + id + "/resolve-vote",
+                        voteBody(p.optBoolean("demo", false)), null));
+            case "STATUS": {
+                String token = adminToken;
+                if (token == null) return OP_DROP; // no server session: the change stays local-only
+                return classify(syncClient.postJson("api/v1/reports/" + id + "/status",
+                        payload("status", p.optString("status", "")), token));
+            }
+            case "PHOTO":
+                return execPhoto(id, p.optString("path", ""));
+            default:
+                return OP_DROP;
+        }
+    }
+
+    private int execCreate(String id) {
+        HazardReport copy = null;
+        synchronized (reportsList) {
+            for (HazardReport r : reportsList) {
+                if (r.id.equals(id)) {
+                    copy = new HazardReport(r);
+                    break;
+                }
+            }
+        }
+        if (copy == null) return OP_DROP;
+
+        SyncClient.Response resp;
+        try {
+            resp = syncClient.postJson("api/v1/reports", SyncClient.reportToJson(copy, deviceId), null);
+        } catch (JSONException e) {
+            return OP_DROP;
+        }
+        int cls = classify(resp);
+        if (cls != OP_DONE) return cls;
+
+        String mergedInto = (resp.json == null || resp.json.isNull("merged_into"))
+                ? "" : resp.json.optString("merged_into", "");
+        synchronized (reportsList) {
+            if (!mergedInto.isEmpty() && !mergedInto.equals(id)) {
+                // The server found a nearby duplicate and merged our report into it: drop the local copy
+                Iterator<HazardReport> it = reportsList.iterator();
+                while (it.hasNext()) {
+                    if (it.next().id.equals(id)) it.remove();
+                }
+                upvotedIds.add(mergedInto);
+                if (dbHelper != null) {
+                    SQLiteDatabase db = dbHelper.getWritableDatabase();
+                    db.delete("hazard_reports", "id=?", new String[]{id});
+                    ContentValues cv = new ContentValues();
+                    cv.put("report_id", mergedInto);
+                    cv.put("vote_type", "UPVOTE");
+                    db.insertWithOnConflict("user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
+                }
+                publishSnapshotLocked();
+                if (copy.photoUri != null && !copy.photoUri.isEmpty()) {
+                    enqueueOp("PHOTO", mergedInto, payload("path", copy.photoUri));
+                }
+            } else {
+                syncedIds.add(id);
+                markSyncedDb(id);
+            }
+        }
+        return OP_DONE;
+    }
+
+    private int execPhoto(String reportId, String path) {
+        if (path == null || path.isEmpty()) return OP_DROP;
+        File f = new File(path);
+        if (!f.isFile()) return OP_DROP;
+        // 409 (server already has a photo) and 404 (report merged away) are both permanent -> dropped
+        return classify(syncClient.uploadPhoto("api/v1/reports/" + reportId + "/photo", f, deviceId));
+    }
+
+    private void markSyncedDb(String id) {
+        if (dbHelper == null) return;
+        dbHelper.getWritableDatabase().execSQL("UPDATE hazard_reports SET synced=1 WHERE id=?", new Object[]{id});
+    }
+
+    private static void copyServerFields(HazardReport local, HazardReport in) {
+        local.title = in.title;
+        local.description = in.description;
+        local.locationName = in.locationName;
+        local.hazardType = in.hazardType;
+        local.severity = in.severity;
+        local.status = in.status;
+        local.latitude = in.latitude;
+        local.longitude = in.longitude;
+        local.timestamp = in.timestamp;
+        local.upvotes = in.upvotes;
+        local.resolveVotes = in.resolveVotes;
+        local.aiConfidence = in.aiConfidence;
+        local.aiTriageNote = in.aiTriageNote;
+        local.reporterEmail = in.reporterEmail;
+        local.timeline = in.timeline;
+        if (in.createdAt > 0) local.createdAt = in.createdAt;
+    }
+
+    private void applyVoteFlag(SQLiteDatabase db, String reportId, String type, boolean voted, Set<String> memory) {
+        if (voted) {
+            memory.add(reportId);
+            ContentValues cv = new ContentValues();
+            cv.put("report_id", reportId);
+            cv.put("vote_type", type);
+            db.insertWithOnConflict("user_votes", null, cv, SQLiteDatabase.CONFLICT_IGNORE);
+        } else {
+            memory.remove(reportId);
+            db.delete("user_votes", "report_id=? AND vote_type=?", new String[]{reportId, type});
+        }
+    }
+
+    private void pullRemote() {
+        SyncClient.Response resp = syncClient.get("api/v1/reports?limit=" + PULL_LIMIT + "&device_id=" + deviceId);
+        if (!resp.ok() || resp.json == null) {
+            postSyncStatus(0, true);
+            return;
+        }
+        JSONArray arr = resp.json.optJSONArray("reports");
+        if (arr == null) {
+            postSyncStatus(0, true);
+            return;
+        }
+        List<SyncClient.Remote> remote = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            SyncClient.Remote rm = SyncClient.parseRemote(o);
+            if (!rm.report.id.isEmpty()) remote.add(rm);
+        }
+
+        SQLiteDatabase db = dbHelper.getWritableDatabase();
+        List<String> needPhoto = new ArrayList<>();
+        synchronized (reportsList) {
+            // The user acted while we were downloading: skip, the next round will include that change
+            if (DatabaseUtils.queryNumEntries(db, "outbox") > 0) return;
+
+            Map<String, HazardReport> byId = new HashMap<>();
+            for (HazardReport r : reportsList) byId.put(r.id, r);
+            Set<String> remoteIds = new HashSet<>();
+
+            db.beginTransaction();
+            try {
+                for (SyncClient.Remote rm : remote) {
+                    HazardReport in = rm.report;
+                    remoteIds.add(in.id);
+                    HazardReport local = byId.get(in.id);
+                    if (local == null) {
+                        local = in;
+                        reportsList.add(local);
+                        byId.put(in.id, local);
+                    } else {
+                        copyServerFields(local, in);
+                    }
+                    syncedIds.add(in.id);
+                    insertOrUpdateReportDb(local);
+                    markSyncedDb(in.id);
+                    applyVoteFlag(db, in.id, "UPVOTE", rm.myUpvote, upvotedIds);
+                    applyVoteFlag(db, in.id, "RESOLVE", rm.myResolve, resolveVotedIds);
+                    boolean haveFile = local.photoUri != null && !local.photoUri.isEmpty()
+                            && new File(local.photoUri).isFile();
+                    if (rm.hasPhoto && !haveFile && needPhoto.size() < MAX_PHOTO_DOWNLOADS_PER_SYNC) {
+                        needPhoto.add(in.id);
+                    }
+                }
+                // Reports that used to exist on the server but are gone now (e.g. demo reset): remove them here too.
+                // Only safe when we received the complete list.
+                if (remote.size() < PULL_LIMIT) {
+                    Iterator<HazardReport> it = reportsList.iterator();
+                    while (it.hasNext()) {
+                        HazardReport r = it.next();
+                        if (syncedIds.contains(r.id) && !remoteIds.contains(r.id)) {
+                            it.remove();
+                            syncedIds.remove(r.id);
+                            db.delete("hazard_reports", "id=?", new String[]{r.id});
+                        }
+                    }
+                }
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
+            Collections.sort(reportsList, (a, b) -> Long.compare(b.createdAt, a.createdAt));
+            publishSnapshotLocked();
+        }
+
+        downloadMissingPhotos(needPhoto);
+        postSyncStatus(0, false);
+    }
+
+    private void downloadMissingPhotos(List<String> ids) {
+        if (appContext == null || ids.isEmpty()) return;
+        boolean changed = false;
+        for (String id : ids) {
+            byte[] bytes = syncClient.download("api/v1/reports/" + id + "/photo");
+            if (bytes == null || bytes.length == 0) continue;
+            File dir = new File(appContext.getFilesDir(), "report_photos");
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+            File out = new File(dir, id + ".jpg");
+            try (FileOutputStream fos = new FileOutputStream(out)) {
+                fos.write(bytes);
+            } catch (Exception e) {
+                continue;
+            }
+            synchronized (reportsList) {
+                for (HazardReport r : reportsList) {
+                    if (r.id.equals(id)) {
+                        r.photoUri = out.getAbsolutePath();
+                        insertOrUpdateReportDb(r);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (changed) {
+            synchronized (reportsList) {
+                publishSnapshotLocked();
+            }
+        }
+    }
+
+    private void postSyncStatus(int pending, boolean offline) {
+        String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
+        int total;
+        synchronized (reportsList) {
+            total = reportsList.size();
+        }
+        String text;
+        if (offline) {
+            text = "📴 Server unreachable — " + pending + " change(s) waiting to sync (last try " + time + ")";
+        } else if (pending > 0) {
+            text = "🔄 Syncing… " + pending + " change(s) pending";
+        } else {
+            text = "☁️ Synced at " + time + " • " + total + " reports on this device";
+        }
+        try { syncStatusLiveData.postValue(text); } catch (RuntimeException ignored) {}
     }
 
     // FR 3.1: 尝试将 Bitmap 上传至 FastAPI /api/v1/triage 进行服务端视觉分类，离线时返回 null 交由端侧 HSV 引擎处理
@@ -907,7 +1346,7 @@ public class CampusRepository {
     // 内置原生 SQLiteOpenHelper 数据库
     private static class ClearFlowDbHelper extends SQLiteOpenHelper {
         private static final String DB_NAME = "um_clearflow.db";
-        private static final int DB_VERSION = 3;
+        private static final int DB_VERSION = 4;
 
         ClearFlowDbHelper(Context context) {
             super(context, DB_NAME, null, DB_VERSION);
@@ -932,12 +1371,21 @@ public class CampusRepository {
                     "aiTriageNote TEXT, " +
                     "reporterEmail TEXT, " +
                     "timeline TEXT, " +
-                    "photoUri TEXT DEFAULT '')");
+                    "photoUri TEXT DEFAULT '', " +
+                    "createdAt INTEGER DEFAULT 0, " +
+                    "synced INTEGER DEFAULT 0)");
 
             db.execSQL("CREATE TABLE IF NOT EXISTS user_votes (" +
                     "report_id TEXT, " +
                     "vote_type TEXT, " +
                     "PRIMARY KEY(report_id, vote_type))");
+
+            // Changes waiting to be sent to the server, in the order the user made them
+            db.execSQL("CREATE TABLE IF NOT EXISTS outbox (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "op TEXT NOT NULL, " +
+                    "report_id TEXT NOT NULL, " +
+                    "payload TEXT DEFAULT '{}')");
         }
 
         @Override
@@ -950,7 +1398,11 @@ public class CampusRepository {
             if (oldVersion < 3) {
                 try { db.execSQL("ALTER TABLE hazard_reports ADD COLUMN photoUri TEXT DEFAULT ''"); } catch (Exception ignored) {}
             }
-            onCreate(db); // CREATE TABLE IF NOT EXISTS preserves existing data
+            if (oldVersion < 4) {
+                try { db.execSQL("ALTER TABLE hazard_reports ADD COLUMN createdAt INTEGER DEFAULT 0"); } catch (Exception ignored) {}
+                try { db.execSQL("ALTER TABLE hazard_reports ADD COLUMN synced INTEGER DEFAULT 0"); } catch (Exception ignored) {}
+            }
+            onCreate(db); // CREATE TABLE IF NOT EXISTS preserves existing data and adds the outbox table
         }
     }
 }

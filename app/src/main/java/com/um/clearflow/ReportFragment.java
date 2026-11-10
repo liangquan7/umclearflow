@@ -522,7 +522,7 @@ public class ReportFragment extends Fragment {
         String timeStr = new SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(new Date());
         String myEmail = CampusRepository.getInstance()
                 .getProfileField("siswa_email", "demo.student@siswa.um.edu.my");
-        String timeline = timeStr + " • Submitted by " + myEmail
+        String timeline = timeStr + " • Submitted"
                 + (capturedBitmap != null ? " (With Photo Estimate)" : " (Text Report)");
 
         String photoUri = "";
@@ -546,12 +546,13 @@ public class ReportFragment extends Fragment {
         viewModel.setCapturedPhoto(null);
         latestTriage = null;
         ivPhotoPreview.setVisibility(View.GONE);
-        tvTriageResult.setText("Report queued for local save. This version does not send it to JPPHB or other users. Reports of the same type within 50 m may be merged locally.");
+        tvTriageResult.setText("Report saved on this device and queued for sync to the ClearFlow server. "
+                + "JPPHB dispatch is not connected. Nearby reports of the same type (<50 m) are merged.");
         realGpsLat = null;
         realGpsLon = null;
         tvGpsStatus.setText("Using landmark coordinates");
         viewModel.clearTriage();
-        Toast.makeText(getContext(), "Report queued for local saving on this device.", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(), "Report saved; syncing…", Toast.LENGTH_SHORT).show();
     }
 
     private void refreshReportList() {

@@ -40,4 +40,12 @@ public class ProfileViewModel extends ViewModel {
     public String exportCsvContent() {
         return repository.exportReportsToCsv();
     }
+
+    public LiveData<String> getSyncStatus() {
+        return repository.getSyncStatusLiveData();
+    }
+
+    public void syncNow() {
+        repository.requestSync();
+    }
 }

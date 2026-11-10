@@ -66,6 +66,7 @@ dependencies {
     implementation(libs.lifecycle.livedata)
 
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.ext.junit)
 }

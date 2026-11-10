@@ -23,6 +23,10 @@ from starlette.concurrency import run_in_threadpool
 
 app = FastAPI(title="UM-ClearFlow Backend API (SDG 13 Campus Resilience)")
 
+from reports_api import router as reports_router  # noqa: E402  (shared reports, votes, admin, photos)
+
+app.include_router(reports_router)
+
 VALID_HAZARD_TYPES = {
     "Flash Flood",
     "Blocked Drain",

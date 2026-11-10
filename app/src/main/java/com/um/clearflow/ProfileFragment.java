@@ -42,6 +42,7 @@ public class ProfileFragment extends Fragment {
     private LinearLayout layoutAdminBroadcast;
     private EditText etBroadcastMsg;
     private TextView tvHotspotRanking;
+    private TextView tvPrivacyInfo;
 
     private final String[] faculties = {
             "Faculty of Computer Science & IT (FCSIT)",
@@ -102,6 +103,15 @@ public class ProfileFragment extends Fragment {
         setupSpinners();
         loadSavedProfileFields();
         setupActions(view);
+        tvPrivacyInfo = view.findViewById(R.id.privacy_info_text);
+        Button btnSyncNow = view.findViewById(R.id.btn_sync_now);
+        btnSyncNow.setOnClickListener(v -> {
+            viewModel.syncNow();
+            Toast.makeText(getContext(), "Syncing with the ClearFlow server…", Toast.LENGTH_SHORT).show();
+        });
+        viewModel.getSyncStatus().observe(getViewLifecycleOwner(), s -> tvPrivacyInfo.setText(
+                s + "\nReports are saved on this device first and then synced to the ClearFlow server. "
+                        + "JPPHB dispatch is not connected."));
         observeViewModel();
 
         return view;

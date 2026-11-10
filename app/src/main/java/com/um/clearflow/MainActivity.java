@@ -49,6 +49,26 @@ public class MainActivity extends AppCompatActivity {
     private CancellationSignal pendingSosCancellation;
     private Runnable pendingSosTimeout;
 
+    private final Runnable syncTicker = new Runnable() {
+        @Override
+        public void run() {
+            CampusRepository.getInstance().requestSync();
+            mainHandler.postDelayed(this, 30_000L);
+        }
+    };
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        mainHandler.post(syncTicker);          // sync on launch and then every 30 s while visible
+    }
+
+    @Override
+    protected void onStop() {
+        mainHandler.removeCallbacks(syncTicker);
+        super.onStop();
+    }
+
     private final ActivityResultLauncher<String> notifPermLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 // Notification permission callback
