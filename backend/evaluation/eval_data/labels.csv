@@ -1,0 +1,50 @@
+filename,hazard_type,severity,split,title,source,notes
+um_drain_01.jpg,Blocked Drain,Critical,dev,Leaves and debris overflowing roadside drain,synthetic augmentation,"high water level, leaf debris blocking grate"
+um_drain_02.jpg,Blocked Drain,Critical,test,Plastic trash blocking stormwater culvert,synthetic augmentation,drain completely blocked by plastics and mud
+um_drain_03.jpg,Blocked Drain,Medium,dev,Partial silt buildup in concrete ditch,synthetic augmentation,silt and sediment covering half drain floor
+um_drain_04.jpg,Blocked Drain,Critical,test,Overflowing campus main drain spilling on curb,synthetic augmentation,water overflowing onto pavement surface
+um_drain_05.jpg,Blocked Drain,Medium,dev,Accumulated fallen branches in campus drain,synthetic augmentation,branches obstructing flow near perimeter
+um_drain_06.jpg,Blocked Drain,Critical,test,Severely clogged culvert during heavy shower,synthetic augmentation,culvert inlet choked with vegetation
+um_drain_07.jpg,Blocked Drain,Medium,dev,Slow-moving murky water in campus culvert,synthetic augmentation,"sediment accumulation, sluggish runoff"
+um_drain_08.jpg,Blocked Drain,Critical,test,Grate blocked by foliage near walking path,synthetic augmentation,pedestrian route adjacent to choked drain
+um_ctrl_01.jpg,Blocked Drain,Low,dev,Clear open concrete campus drain,synthetic augmentation,"clean flowing drain, clear grate, safe baseline"
+um_ctrl_02.jpg,Flash Flood,Low,test,Dry campus asphalt roadway and curb,synthetic augmentation,"dry asphalt road, clear markings, safe baseline"
+um_ctrl_03.jpg,Slope / Landslide,Low,dev,Stable grass slope with concrete retaining grid,synthetic augmentation,"reinforced embankment, no erosion, safe baseline"
+um_ctrl_04.jpg,Fallen Tree,Low,test,Healthy campus trees along walkway,synthetic augmentation,"intact trees, clear covered walkway, safe baseline"
+um_ctrl_05.jpg,Blocked Drain,Low,dev,Clean perimeter drain at campus building,own photo 2026-11-11,"photo taken at UM campus, clear open drainage channel"
+um_ctrl_06.jpg,Flash Flood,Low,test,Dry pedestrian walkway near faculty,own photo 2026-11-11,"photo taken at UM campus, dry pavers, clear walking route"
+um_ctrl_07.jpg,Flash Flood,Low,dev,Clear road and parking lot at residential college,own photo 2026-11-11,"photo taken at UM campus, dry tarmac, unobstructed road"
+um_ctrl_08.jpg,Blocked Drain,Low,test,Covered drain grating in good condition,own photo 2026-11-11,"photo taken at UM campus, metal grate unobstructed"
+um_ctrl_09.jpg,Slope / Landslide,Low,dev,Intact retaining wall and terraced slope,own photo 2026-11-11,"photo taken at UM campus, retaining structure intact"
+um_ctrl_10.jpg,Fallen Tree,Low,test,Shaded path with well-trimmed trees,own photo 2026-11-11,"photo taken at UM campus, healthy trees with no fallen branches"
+um_ctrl_11.jpg,Flash Flood,Low,dev,Normal campus street after light drizzle,own photo 2026-11-11,"photo taken at UM campus, minor damp surface, no ponding"
+um_ctrl_12.jpg,Blocked Drain,Low,test,Main stormwater canal free flowing,own photo 2026-11-11,"photo taken at UM campus, canal running freely"
+um_ctrl_13.jpg,Slope / Landslide,Low,dev,Lawn slope adjacent to student center,own photo 2026-11-11,"photo taken at UM campus, stable turf and ground"
+um_tree_01.jpg,Fallen Tree,Critical,dev,Large tree trunk completely blocking road,photo dataset,heavy trunk blocking both vehicle lanes
+um_tree_02.jpg,Fallen Tree,Critical,test,Uprooted tree fallen across urban avenue,photo dataset,"root ball exposed, road fully impassable"
+um_tree_03.jpg,Fallen Tree,Medium,dev,Fallen tree limb over walkway railing,synthetic augmentation,branch hanging across covered walkway railing
+um_tree_04.jpg,Fallen Tree,Critical,test,Broken bough blocking single vehicle lane,photo dataset,"large limb down, traffic diverted"
+um_tree_05.jpg,Fallen Tree,Medium,dev,Snagged branch hanging over walkway,photo dataset,partial overhead hazard for pedestrians
+um_tree_06.jpg,Fallen Tree,Critical,test,Tree fallen directly onto roadway and wire,photo dataset,tree blocking road near utility poles
+um_tree_07.jpg,Fallen Tree,Critical,dev,Multiple storm-downed trees blocking highway,photo dataset,severe storm damage blocking transit path
+um_tree_08.jpg,Fallen Tree,Medium,test,Broken branches scattered on paved path,photo dataset,"scattered foliage and twigs, passable on foot"
+um_tree_09.jpg,Fallen Tree,Critical,dev,Large tree collapsed on suburban road,photo dataset,"trunk spanning across lane, requires maintenance removal"
+um_tree_10.jpg,Fallen Tree,Critical,test,Massive tree blocking campus entrance road,photo dataset,"road access blocked, vehicles cannot pass"
+um_flood_01.jpg,Flash Flood,Critical,dev,Water submerging roadway at campus gate,synthetic augmentation,deep flood water covering roadway and sidewalks
+um_flood_02.jpg,Flash Flood,Critical,test,Flooded street with water up to vehicle tires,synthetic augmentation,"moving flood water, impassable for light vehicles"
+um_flood_03.jpg,Flash Flood,Medium,dev,Water ponding beside curb and walkway,synthetic augmentation,"shallow ponding along gutter, footpath passable"
+um_flood_04.jpg,Flash Flood,Critical,test,Rapid muddy flood water crossing roadway,synthetic augmentation,"high runoff across intersection, dangerous for pedestrians"
+um_flood_05.jpg,Flash Flood,Medium,dev,Surface runoff ponding near building entrance,synthetic augmentation,"water accumulation near entrance steps, passable"
+um_flood_06.jpg,Flash Flood,Critical,test,Submerged road intersection near college,synthetic augmentation,"severe water accumulation, traffic stopped"
+um_flood_07.jpg,Flash Flood,Medium,dev,Large puddle spanning lane after downpour,synthetic augmentation,"standing water on outer lane, inner lane passable"
+um_flood_08.jpg,Flash Flood,Critical,test,Water overtopping curb and walkway,synthetic augmentation,"curb submerged, flood encroaching on buildings"
+um_slope_01.jpg,Slope / Landslide,Critical,dev,Mud and rock debris covering road lane,photo dataset,"slope collapse, mudflow over tarmac"
+um_slope_02.jpg,Slope / Landslide,Critical,test,Eroded hillside with debris flow across path,synthetic augmentation,soil and debris collapsed onto hillside path
+um_slope_03.jpg,Slope / Landslide,Medium,dev,Slumped soil and gravel on paved walkway,synthetic augmentation,"slight earth slippage, narrow passage remains"
+um_slope_04.jpg,Slope / Landslide,Critical,test,Major slope failure and landslide on roadway,synthetic augmentation,extensive mud and rock blocking road
+um_slope_05.jpg,Slope / Landslide,Critical,dev,Hillside slip dumping soil onto highway lane,photo dataset,heavy mud deposited on carriageway
+um_slope_06.jpg,Slope / Landslide,Critical,test,Road collapsed due to severe embankment washout,photo dataset,"road shoulder washed out, severe hazard"
+um_slope_07.jpg,Slope / Landslide,Medium,dev,Soil erosion washing fine silt onto steps,photo dataset,"silt wash, slippery staircase near slope"
+um_slope_08.jpg,Slope / Landslide,Critical,test,Large mudflow engulfing roadway,photo dataset,mud inundation blocking vehicle movement
+um_slope_09.jpg,Slope / Landslide,Medium,dev,Minor earth slippage behind campus building,photo dataset,"soil scarp visible, localized movement"
+um_slope_10.jpg,Slope / Landslide,Critical,test,Hillside collapse with boulder on road,photo dataset,rock and earthfall blocking transit route

@@ -21,6 +21,9 @@ from collections import deque
 from io import BytesIO
 from typing import Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool

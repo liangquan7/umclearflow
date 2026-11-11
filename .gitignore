@@ -21,3 +21,5 @@ __pycache__/
 backend/clearflow.db
 backend/photos/
 backend/evaluation/eval_data_smoke/
+backend/.env
+.env
