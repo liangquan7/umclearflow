@@ -3,8 +3,10 @@ package com.um.clearflow;
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -1302,28 +1304,40 @@ public class CampusRepository {
     }
 
     // FR 5.3: 触发系统状态栏本地通知
-    public void sendLocalAlertNotification(String title, String message) {
-        sendLocalAlertNotification((int) (System.currentTimeMillis() & 0xFFFFFFF), title, message);
+    public boolean sendLocalAlertNotification(String title, String message) {
+        return sendLocalAlertNotification((int) (System.currentTimeMillis() & 0xFFFFFFF), title, message);
     }
 
+    /**
+     * Fixed id per alert type: a newer alert replaces the old one instead of stacking.
+     * @return true if the system accepted it; false if there is no context, permission is denied or the user
+     *         blocked notifications (callers then do not consume the cooldown).
+     */
     public boolean sendLocalAlertNotification(int notificationId, String title, String message) {
         if (appContext == null) return false;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ActivityCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                return false;
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ActivityCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return false;
         }
+        NotificationManagerCompat nm = NotificationManagerCompat.from(appContext);
+        if (!nm.areNotificationsEnabled()) return false;
+
+        // Tapping the notification opens the app (it had no tap action before)
+        Intent open = new Intent(appContext, MainActivity.class)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent tap = PendingIntent.getActivity(appContext, notificationId, open,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(appContext, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_alert)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(tap)
                 .setAutoCancel(true);
-
-        NotificationManagerCompat.from(appContext)
-                .notify(notificationId, builder.build());
+        nm.notify(notificationId, builder.build());
         return true;
     }
 

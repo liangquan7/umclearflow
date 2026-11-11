@@ -246,6 +246,70 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- FR 5.3 后台天气预警 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="#FFFFFF"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Background Weather Alerts"
+                android:textColor="#1E293B"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/sw_bg_alerts"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="Check campus weather in the background (about every 15 min)"
+                android:textColor="#0F172A"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tv_bg_alert_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#F1F5F9"
+                android:padding="10dp"
+                android:textColor="#0F172A"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Uses the fixed UM campus location, never your device location. Illustrative thresholds, not an official MetMalaysia warning."
+                android:textColor="#64748B"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/btn_bg_check_now"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:text="Run a background check now"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_bg_simulate"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="6dp"
+                android:backgroundTint="#DC2626"
+                android:text="⛈️ Simulate squall in background (debug)"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
         <!-- FR 5.1 动态高频黑点排行榜 & FR 5.2 导出 CSV 报告 -->
         <LinearLayout
             android:layout_width="match_parent"

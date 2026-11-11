@@ -263,7 +263,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         CampusRepository.init(getApplicationContext());
-        WeatherAlertScheduler.apply(this);
         EdgeToEdge.enable(this);
         super.onCreate(savedInstanceState);
 
@@ -271,6 +270,7 @@ public class MainActivity extends AppCompatActivity {
         applySystemBarInsets();
         findViewById(R.id.btnTopSos).setOnClickListener(v -> showSosDialog());
         requestNotificationPermissionIfNeeded();
+        WeatherAlertScheduler.apply(getApplicationContext());
 
         FragmentManager fm = getSupportFragmentManager();
         if (savedInstanceState == null) {

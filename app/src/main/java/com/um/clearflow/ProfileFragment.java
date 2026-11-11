@@ -1,6 +1,7 @@
 package com.um.clearflow;
 
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
@@ -21,6 +22,10 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
+import com.google.android.material.materialswitch.MaterialSwitch;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 public class ProfileFragment extends Fragment {
@@ -43,6 +48,8 @@ public class ProfileFragment extends Fragment {
     private EditText etBroadcastMsg;
     private TextView tvHotspotRanking;
     private TextView tvPrivacyInfo;
+    private MaterialSwitch swBgAlerts;
+    private TextView tvBgAlertStatus;
 
     private final String[] faculties = {
             "Faculty of Computer Science & IT (FCSIT)",
@@ -112,6 +119,7 @@ public class ProfileFragment extends Fragment {
         viewModel.getSyncStatus().observe(getViewLifecycleOwner(), s -> tvPrivacyInfo.setText(
                 s + "\nReports are saved on this device first and then synced to the ClearFlow server. "
                         + "JPPHB dispatch is not connected."));
+        setupBackgroundAlerts(view);
         observeViewModel();
 
         return view;
@@ -280,5 +288,69 @@ public class ProfileFragment extends Fragment {
         viewModel.getReports().observe(getViewLifecycleOwner(), reports -> {
             tvHotspotRanking.setText(viewModel.getHotspotStats());
         });
+    }
+
+    private void setupBackgroundAlerts(View view) {
+        swBgAlerts = view.findViewById(R.id.sw_bg_alerts);
+        tvBgAlertStatus = view.findViewById(R.id.tv_bg_alert_status);
+        Button btnRunNow = view.findViewById(R.id.btn_bg_check_now);
+        Button btnSimulate = view.findViewById(R.id.btn_bg_simulate);
+        final Context app = requireContext().getApplicationContext();
+        final AlertPrefs prefs = new AlertPrefs(app);
+
+        swBgAlerts.setChecked(prefs.isEnabled());
+        swBgAlerts.setOnCheckedChangeListener((b, on) -> {
+            prefs.setEnabled(on);
+            WeatherAlertScheduler.apply(app);
+            refreshBackgroundAlertStatus();
+        });
+        btnRunNow.setOnClickListener(v -> {
+            WeatherAlertScheduler.runNow(app, false);
+            Toast.makeText(getContext(), "Background check queued; the result appears below in a few seconds.",
+                    Toast.LENGTH_SHORT).show();
+            tvBgAlertStatus.postDelayed(this::refreshBackgroundAlertStatus, 4000);
+        });
+        if (BuildConfig.DEBUG) {
+            btnSimulate.setOnClickListener(v -> {
+                WeatherAlertScheduler.runNow(app, true);
+                Toast.makeText(getContext(), "Simulated squall queued. Press Home: the notification comes from the background worker.",
+                        Toast.LENGTH_LONG).show();
+                tvBgAlertStatus.postDelayed(this::refreshBackgroundAlertStatus, 4000);
+            });
+        } else {
+            btnSimulate.setVisibility(View.GONE);
+        }
+        refreshBackgroundAlertStatus();
+    }
+
+    private void refreshBackgroundAlertStatus() {
+        if (tvBgAlertStatus == null || !isAdded()) return;
+        AlertPrefs prefs = new AlertPrefs(requireContext());
+        StringBuilder sb = new StringBuilder();
+        if (!androidx.core.app.NotificationManagerCompat.from(requireContext()).areNotificationsEnabled()) {
+            sb.append("⚠️ Notifications are blocked for this app, so alerts cannot be shown. Enable them in system settings.\n");
+        }
+        if (!prefs.isEnabled()) {
+            sb.append("Background checks are off.");
+        } else if (prefs.lastCheckMs() == 0L) {
+            sb.append("No background check has run yet (the first one runs within about 15 minutes).");
+        } else {
+            sb.append("Last check ")
+                    .append(new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date(prefs.lastCheckMs())))
+                    .append(" — ").append(prefs.lastSummary());
+        }
+        tvBgAlertStatus.setText(sb.toString());
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        refreshBackgroundAlertStatus();
+    }
+
+    @Override
+    public void onHiddenChanged(boolean hidden) {   // tabs are shown/hidden, not recreated
+        super.onHiddenChanged(hidden);
+        if (!hidden) refreshBackgroundAlertStatus();
     }
 }
