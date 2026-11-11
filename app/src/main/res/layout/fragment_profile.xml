@@ -362,7 +362,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Reports, votes, and demo controls are stored locally on this device. No report sync or JPPHB dispatch is configured."
+                android:text="Reports are stored locally in SQLite and synchronized with the ClearFlow server. Claude multimodal AI and rule fallbacks are enabled."
                 android:textColor="#64748B"
                 android:textSize="11sp" />
         </LinearLayout>

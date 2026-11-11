@@ -39,6 +39,14 @@ def test_definitive_safe_claims_ignore_hedged_sentences():
     assert not U.definitive_safe_claims("Check whether the walkway is open before moving.")
 
 
+def test_definitive_safe_claims_hedged_across_long_sentence():
+    assert not U.definitive_safe_claims(
+        "I can't confirm that the Pantai Gate to FCSIT route is safe right now.")
+    assert not U.definitive_safe_claims(
+        "This is demo data, so check that it is open before you go.")
+    assert U.definitive_safe_claims("Good news. The route is safe.")  # real claim still caught
+
+
 def test_word_count_and_language_detection():
     assert U.word_count("one two three") == 3
     assert U.word_count("请立即拨打九九九") == 4  # 8 CJK chars ~ 4 words

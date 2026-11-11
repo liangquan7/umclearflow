@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Weather Estimates &amp; Campus Safety Guide"
+            android:text="Weather Forecast &amp; AI Safety Guide"
             android:textColor="#0F172A"
             android:textSize="18sp"
             android:textStyle="bold" />
@@ -22,7 +22,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginBottom="10dp"
-            android:text="Weather forecast • Local rule-based estimates • Device notifications"
+            android:text="Open-Meteo telemetry • Claude AI Advisor &amp; Rules • Background alerts"
             android:textColor="#64748B"
             android:textSize="12sp" />
 
@@ -126,7 +126,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="2. Rule-Based Campus Safety Guide"
+                android:text="2. Interactive AI Campus Safety Advisor (Claude + Rules)"
                 android:textColor="#1E293B"
                 android:textSize="14sp"
                 android:textStyle="bold" />

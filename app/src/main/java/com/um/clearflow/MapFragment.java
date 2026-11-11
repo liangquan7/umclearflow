@@ -111,8 +111,18 @@ public class MapFragment extends Fragment {
     private LinearLayout layoutRouteSelector;
     private Spinner spinnerOrigin;
     private Spinner spinnerDestination;
+    private Spinner spinnerMobilityMode;
     private Button btnAll;
     private Button btnCritical;
+
+    private static final String[] MOBILITY_MODES = {
+            "🚶 Walking (Pedestrian / Covered Walkway)",
+            "♿ Wheelchair / Barrier-Free Ramp",
+            "🚴 Cycling (Bicycle / Micro-mobility)",
+            "🚗 Driving (Car / Taxi)",
+            "🛵 Motorcycle (Motor / Scooter)",
+            "🚌 UM Shuttle Bus (Bus Route)"
+    };
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService routeExecutor = Executors.newSingleThreadExecutor();
@@ -179,6 +189,7 @@ public class MapFragment extends Fragment {
         layoutRouteSelector = view.findViewById(R.id.layout_route_selector);
         spinnerOrigin = view.findViewById(R.id.spinner_origin);
         spinnerDestination = view.findViewById(R.id.spinner_destination);
+        spinnerMobilityMode = view.findViewById(R.id.spinner_mobility_mode);
         mapView = view.findViewById(R.id.osm_map);
 
         setupMap();
@@ -208,6 +219,18 @@ public class MapFragment extends Fragment {
         spinnerDestination.setAdapter(new ArrayAdapter<>(
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, destNames));
 
+        ArrayAdapter<String> modeAdapter = new ArrayAdapter<>(
+                requireContext(), android.R.layout.simple_spinner_dropdown_item, MOBILITY_MODES);
+        spinnerMobilityMode.setAdapter(modeAdapter);
+        String savedPref = CampusRepository.getInstance()
+                .getProfileField("mobility_pref", "Walking (Pedestrian / Covered Walkway)");
+        for (int i = 0; i < MOBILITY_MODES.length; i++) {
+            if (MOBILITY_MODES[i].toLowerCase(Locale.ROOT).contains(savedPref.toLowerCase(Locale.ROOT).split(" ")[0])) {
+                spinnerMobilityMode.setSelection(i, false);
+                break;
+            }
+        }
+
         Integer savedO = viewModel.getOriginIndex().getValue();
         Integer savedD = viewModel.getDestinationIndex().getValue();
         if (savedO != null && savedO >= 0 && savedO < originNames.length) spinnerOrigin.setSelection(savedO, false);
@@ -226,6 +249,15 @@ public class MapFragment extends Fragment {
         };
         spinnerOrigin.setOnItemSelectedListener(routeChangeListener);
         spinnerDestination.setOnItemSelectedListener(routeChangeListener);
+        spinnerMobilityMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View v, int position, long id) {
+                renderMapOverlays();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
     }
 
     private void setupControls(View view) {
@@ -478,7 +510,7 @@ public class MapFragment extends Fragment {
 
     private static String routingService(String mobilityPref) {
         if (mobilityPref.contains("Cycling")) return "routed-bike";
-        if (mobilityPref.contains("Driving") || mobilityPref.contains("Bus")) return "routed-car";
+        if (mobilityPref.contains("Driving") || mobilityPref.contains("Motorcycle") || mobilityPref.contains("Bus")) return "routed-car";
         return "routed-foot"; // walking / wheelchair
     }
 
@@ -515,8 +547,10 @@ public class MapFragment extends Fragment {
         }
         final CampusRepository.ShelterInfo target = shelters.get(dIdx);
         final GeoPoint end = new GeoPoint(target.lat, target.lon);
-        final String mobility = CampusRepository.getInstance()
-                .getProfileField("mobility_pref", "Walking (Pedestrian / Covered Walkway)");
+        String selectedMode = spinnerMobilityMode != null && spinnerMobilityMode.getSelectedItem() != null
+                ? spinnerMobilityMode.getSelectedItem().toString()
+                : CampusRepository.getInstance().getProfileField("mobility_pref", "Walking (Pedestrian / Covered Walkway)");
+        final String mobility = selectedMode;
         final String service = routingService(mobility);
         final String key = originKey + "|" + dIdx + "|" + service + "|" + hazardSignature(allReports);
 

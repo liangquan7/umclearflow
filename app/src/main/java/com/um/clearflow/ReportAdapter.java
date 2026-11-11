@@ -105,7 +105,7 @@ public class ReportAdapter extends ListAdapter<HazardReport, ReportAdapter.CardH
                 ? Color.rgb(185, 28, 28) : Color.rgb(15, 23, 42));
         h.meta.setText(String.format(Locale.US, "📍 %s (%.4f, %.4f)\n🕒 %s | Reporter: %s",
                 r.locationName, r.latitude, r.longitude, r.timestamp, r.reporterEmail));
-        h.body.setText(r.description + "\nRule-based estimate: " + r.aiTriageNote);
+        h.body.setText(r.description + "\nAI / Triage: " + r.aiTriageNote);
 
         bindPhoto(h.photo, r.photoUri);
 

@@ -75,15 +75,21 @@ _SAFE_RE = re.compile(
     r"\b(?:is|are|remains?|looks?)\s+(?:currently\s+|now\s+|completely\s+|totally\s+|fully\s+)?"
     r"(?:safe|clear|open|passable|flood-free)\b", re.I)
 _NEGATION_RE = re.compile(
-    r"\b(?:not|no|never|cannot|can't|isn't|aren't|doesn't|don't|unless|whether|if|until|confirm|guarantee)\b", re.I)
+    r"\b(?:not|no|never|cannot|can't|can’t|isn't|aren't|doesn't|don't|unless|whether|if|until|"
+    r"confirm\w*|guarantee\w*|check|verify|verif\w*|ensure|make sure|before)\b", re.I)
+_SENT_SPLIT_RE = re.compile(r"[.!?\n;]")
 
 
 def definitive_safe_claims(text: str):
-    """English-only heuristic: statements like 'the route is safe' that are not negated/hedged just before.
+    """English-only heuristic: 'the route is safe' that is not negated/hedged earlier in the SAME sentence.
     Malay / Chinese replies need manual review."""
     claims = []
-    for m in _SAFE_RE.finditer(text or ""):
-        before = text[max(0, m.start() - 40):m.start()]
+    text = text or ""
+    for m in _SAFE_RE.finditer(text):
+        # start of the sentence that contains the match
+        starts = [s.end() for s in _SENT_SPLIT_RE.finditer(text, 0, m.start())]
+        sent_start = starts[-1] if starts else 0
+        before = text[sent_start:m.start()]
         if _NEGATION_RE.search(before):
             continue
         claims.append(text[max(0, m.start() - 20):m.end() + 10].replace("\n", " "))

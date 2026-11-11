@@ -37,37 +37,37 @@
     <!-- Hazard Detail Popup -->
     <string name="hazard_detail_location">📍 Location: %1$s</string>
     <string name="hazard_detail_type">⚠️ Type: %1$s (%2$s)</string>
-    <string name="hazard_detail_ai">Rule-based assessment: %1$s</string>
-    <string name="hazard_detail_status">Local demo status: %1$s</string>
-    <string name="hazard_detail_upvotes">👍 Recorded local votes: %1$d</string>
+    <string name="hazard_detail_ai">AI / Triage Assessment: %1$s</string>
+    <string name="hazard_detail_status">Status: %1$s</string>
+    <string name="hazard_detail_upvotes">👍 Recorded community votes: %1$d</string>
     <string name="hazard_confirm_active">👍 Confirm Still Active (+1)</string>
 
     <!-- Report Screen -->
-    <string name="report_card_title">📸 Report UM Campus Hazard &amp; Risk Triage</string>
-    <string name="report_card_subtitle">Add a photo and location. A simple rule-based estimate suggests a hazard category and severity; it is not an AI diagnosis and is not sent to JPPHB.</string>
+    <string name="report_card_title">📸 Report UM Campus Hazard &amp; AI Triage</string>
+    <string name="report_card_subtitle">Add a photo and location. Multimodal Claude Vision (with on-device rule fallback) assesses hazard category and severity. Not an official medical/safety diagnosis.</string>
     <string name="btn_camera_sample">📷 Camera / Demo Photo</string>
-    <string name="btn_run_ai_triage">Run Rule-Based Estimate</string>
+    <string name="btn_run_ai_triage">🔍 Run AI Vision Triage</string>
     <string name="tv_ai_diagnosis_initial">Risk estimate: waiting for analysis…</string>
     <string name="et_hazard_title_hint">Issue Title (e.g., Blocked Drain near FCSIT)</string>
     <string name="cb_simulate_offline">⚡ Simulate Offline Queue (Save to Local Queue)</string>
-    <string name="btn_submit_report">Save Report on This Device</string>
-    <string name="live_reports_title">📋 Reports Saved on This Device (votes and status are local)</string>
+    <string name="btn_submit_report">Save &amp; Queue Report for Sync</string>
+    <string name="live_reports_title">📋 Campus Incident Tickets (Local &amp; Synced)</string>
     <string name="toast_sample_image_loaded">Loaded UM Sample Hazard Image</string>
-    <string name="toast_saved_offline">Saved on this device. This version does not sync reports to a server.</string>
-    <string name="toast_published">Report saved locally and shown on this device\'s map.</string>
+    <string name="toast_saved_offline">Saved locally in outbox; will sync with the ClearFlow server.</string>
+    <string name="toast_published">Report saved locally and synced to the ClearFlow server.</string>
     <string name="status_update_dialog_title">Update Ticket Status (%1$s)</string>
-    <string name="status_pending">Local demo status: Submitted</string>
-    <string name="status_in_progress">Local demo status: In Progress</string>
+    <string name="status_pending">Status: Submitted</string>
+    <string name="status_in_progress">Status: In Progress</string>
     <string name="status_resolved">Resolved &amp; Cleared</string>
-    <string name="status_sync_offline">Mark as locally queued</string>
+    <string name="status_sync_offline">Locally queued for sync</string>
 
     <!-- Weather & AI Screen -->
-    <string name="weather_card_title">☁️ UM Weather &amp; Illustrative Risk Estimates</string>
+    <string name="weather_card_title">☁️ UM Weather &amp; Impact Estimates</string>
     <string name="weather_status_fetching">Fetching live Open-Meteo weather data for Universiti Malaya (Latitude: 3.1209)...</string>
     <string name="btn_refresh_weather">🔄 Refresh Weather API</string>
-    <string name="ai_assistant_card_title">UM Campus Safety Guide</string>
-    <string name="ai_assistant_subtitle">Ask questions about campus flood safety, blocked drains, or JPPHB emergency contacts.</string>
-    <string name="ai_chat_initial">Hello! I provide rule-based campus safety guidance using local reports and preset information. Verify urgent advice with official UM sources.</string>
+    <string name="ai_assistant_card_title">AI Campus Safety Guide (Claude + Rule Fallback)</string>
+    <string name="ai_assistant_subtitle">Ask questions about campus flood safety, blocked drains, or emergency SOPs.</string>
+    <string name="ai_chat_initial">Hello! I am your UM Campus Safety Advisor powered by Claude (with deterministic fallback). How can I assist you today?</string>
     <string name="btn_prompt_flood">⚡ Flood Safety</string>
     <string name="btn_prompt_tree">🌳 Fallen Tree</string>
     <string name="analytics_card_title">📊 Campus Climate Resilience Analytics</string>

@@ -71,6 +71,9 @@ def run_check(check, reply, case):
 
 
 def main():
+    import logging
+    logging.basicConfig(level=logging.WARNING)
+
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cases", default=str(HERE / "chat_cases.json"))
     ap.add_argument("--engines", default="rules,llm")
@@ -106,7 +109,7 @@ def main():
                     rows.append({
                         "engine": eng, "case": case["id"], "run": rep + 1, "check": check["type"],
                         "passed": int(ok and not llm_failed), "detail": "LLM call failed (fell back to rules)" if llm_failed else ("" if ok else detail),
-                        "latency_ms": f"{ms:.0f}", "reply": reply.replace("\n", " ⏎ ")[:600],
+                        "latency_ms": f"{ms:.0f}", "reply": reply.replace("\n", " ⏎ "),
                     })
 
     csv_path = out_dir / "chat_results.csv"

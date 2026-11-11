@@ -39,6 +39,8 @@ import main as backend  # noqa: E402
 from PIL import Image, ImageOps  # noqa: E402
 
 TYPES = ["Flash Flood", "Blocked Drain", "Fallen Tree", "Slope / Landslide"]
+NONE = "None"
+LABELS = TYPES + [NONE]          # ground truth / predictions may be any of these
 SEVERITIES = ["Low", "Medium", "Critical"]
 NEUTRAL_TITLE = "Campus hazard"   # the heuristics read keywords in the title; a neutral one removes label leakage
 
@@ -52,8 +54,8 @@ def load_labels(data_dir: Path, split: str):
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):
-            if r["hazard_type"] not in TYPES:
-                raise SystemExit(f"{r['filename']}: hazard_type must be one of {TYPES}")
+            if r["hazard_type"] not in LABELS:
+                raise SystemExit(f"{r['filename']}: hazard_type must be one of {LABELS}")
             if r["severity"] not in SEVERITIES:
                 raise SystemExit(f"{r['filename']}: severity must be one of {SEVERITIES}")
             if split != "all" and (r.get("split") or "test") != split:
@@ -74,10 +76,12 @@ def prepare_like_the_app(path: Path):
     return data, Image.open(BytesIO(data)).convert("RGB")
 
 
-def hint_for(mode: str, truth: str):
-    idx = TYPES.index(truth)
+def hint_for(mode: str, truth: str, user_category: str = ""):
+    """What the user picked in the category spinner. For a 'None' photo the user still had to pick something."""
+    base = truth if truth in TYPES else (user_category if user_category in TYPES else TYPES[0])
+    idx = TYPES.index(base)
     if mode == "correct":
-        return truth, idx
+        return base, idx
     if mode == "wrong":
         wrong = (idx + 1) % len(TYPES)
         return TYPES[wrong], wrong
@@ -155,7 +159,7 @@ def summarise(rows):
     crit_hit = sum(1 for r in crit if r["pred_sev"] == "Critical")
     noncrit = [r for r in ok if r["truth_sev"] != "Critical"]
     false_alarm = sum(1 for r in noncrit if r["pred_sev"] == "Critical")
-    per = U.prf(truth, pred, TYPES)
+    per = U.prf(truth, pred, LABELS)
     right = [float(r["confidence"]) for r in ok if r["pred_type"] == r["truth_type"]]
     wrong = [float(r["confidence"]) for r in ok if r["pred_type"] != r["truth_type"]]
     lat = [float(r["latency_ms"]) for r in ok]
@@ -169,7 +173,7 @@ def summarise(rows):
         "conf_right": sum(right) / len(right) if right else float("nan"),
         "conf_wrong": sum(wrong) / len(wrong) if wrong else float("nan"),
         "lat_p50": U.percentile(lat, 50), "lat_p95": U.percentile(lat, 95),
-        "confusion": U.confusion(truth, pred, TYPES),
+        "confusion": U.confusion(truth, pred, LABELS),
     }
 
 
@@ -219,15 +223,15 @@ def write_report(path: Path, results, summaries, args, engines, modes):
         L.append("")
 
     L.append("## Confusion matrices (rows = truth, columns = predicted; hint = none)\n")
-    short = {t: t.split()[0][:6] for t in TYPES}
+    short = {t: t.split()[0][:6] for t in LABELS}
     for (eng, mode), s in summaries.items():
         if mode != "none":
             continue
         L.append(f"**{eng}**\n")
-        L.append("| truth \\ pred | " + " | ".join(short[t] for t in TYPES) + " |")
-        L.append("|---|" + "---|" * len(TYPES))
-        for t in TYPES:
-            L.append(f"| {t} | " + " | ".join(str(s['confusion'][(t, p)]) for p in TYPES) + " |")
+        L.append("| truth \\ pred | " + " | ".join(short[t] for t in LABELS) + " |")
+        L.append("|---|" + "---|" * len(LABELS))
+        for t in LABELS:
+            L.append(f"| {t} | " + " | ".join(str(s['confusion'][(t, p)]) for p in LABELS) + " |")
         L.append("")
 
     # does the user's category choice drive the answer?
@@ -316,7 +320,7 @@ def main():
         raw, img = prepare_like_the_app(data_dir / "images" / r["filename"])
         title = (r.get("title") or NEUTRAL_TITLE) if args.use_titles else NEUTRAL_TITLE
         for mode in modes:
-            hint, idx = hint_for(mode, r["hazard_type"])
+            hint, idx = hint_for(mode, r["hazard_type"], r.get("user_category", ""))
             for eng in engines:
                 t0 = time.perf_counter()
                 pred, err = None, ""

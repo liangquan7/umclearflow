@@ -53,6 +53,7 @@ import java.util.regex.Pattern;
 public class ReportFragment extends Fragment {
 
     private static final Pattern COORD_PATTERN = Pattern.compile("\\(([-\\d.]+),\\s*([-\\d.]+)\\)");
+    private static final String NO_HAZARD = "None";
     private static final long MAX_REPORT_LOCATION_AGE_MS = 10 * 60 * 1000L;
     private static final long LIVE_GPS_TIMEOUT_MS = 6000L;
     private static final String CAMERA_DIR = "camera";
@@ -411,10 +412,19 @@ public class ReportFragment extends Fragment {
             latestTriage = res.result;
             latestTriageInputKey = res.inputKey;
             if (res.result != null) {
+                String chosen = spinnerHazardType.getSelectedItem().toString();
+                String detected = res.result.detectedType;
+                String typeLine;
+                if (NO_HAZARD.equals(detected)) {
+                    typeLine = "No clear hazard detected in the photo.";
+                } else if (detected.equals(chosen)) {
+                    typeLine = "Suggested type: " + detected;
+                } else {
+                    typeLine = "Suggested type: " + detected + " (you selected: " + chosen + ")";
+                }
                 tvTriageResult.setText(String.format(Locale.US,
-                        "Suggested type: %s\nSeverity: %s (Confidence: %.0f%%)\n%s",
-                        res.result.detectedType, res.result.severity,
-                        res.result.confidence * 100, res.result.note));
+                        "%s\nSeverity: %s (Confidence: %.0f%%)\n%s",
+                        typeLine, res.result.severity, res.result.confidence * 100, res.result.note));
                 if (submitAfterTriage && pendingSubmitRequestId == res.requestId) {
                     finishPendingSubmission();
                     handleReportSubmission();
@@ -486,30 +496,29 @@ public class ReportFragment extends Fragment {
 
     private void handleReportSubmission() {
         String title = etTitle.getText().toString().trim();
-        String desc = etDesc.getText().toString().trim();
+        String descInput = etDesc.getText().toString().trim();
         if (title.isEmpty()) {
             Toast.makeText(getContext(), "Please enter a short hazard title.", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (desc.isEmpty()) {
-            desc = "Reported via UM-ClearFlow mobile client.";
-        }
+        final String desc = descInput.isEmpty() ? "Reported via UM-ClearFlow mobile client." : descInput;
 
-        String locationStr = spinnerLocation.getSelectedItem().toString();
-        String hazardType = spinnerHazardType.getSelectedItem().toString();
+        final String locationStr = spinnerLocation.getSelectedItem().toString();
+        final String selectedType = spinnerHazardType.getSelectedItem().toString();
 
         // Prefer real GPS; otherwise parse the chosen landmark's coordinates. Never random.
-        double lat = 3.1281, lon = 101.6505;
+        double latTmp = 3.1281, lonTmp = 101.6505;
         if (realGpsLat != null && realGpsLon != null) {
-            lat = realGpsLat;
-            lon = realGpsLon;
+            latTmp = realGpsLat;
+            lonTmp = realGpsLon;
         } else {
             Matcher m = COORD_PATTERN.matcher(locationStr);
             if (m.find()) {
-                lat = Double.parseDouble(m.group(1));
-                lon = Double.parseDouble(m.group(2));
+                latTmp = Double.parseDouble(m.group(1));
+                lonTmp = Double.parseDouble(m.group(2));
             }
         }
+        final double lat = latTmp, lon = lonTmp;
 
         String currentInputKey = currentTriageInputKey();
         if (latestTriage == null || !currentInputKey.equals(latestTriageInputKey)) {
@@ -517,13 +526,48 @@ public class ReportFragment extends Fragment {
             return;
         }
 
+        final CampusRepository.TriageResult tr = latestTriage;
+        final String detected = tr.detectedType != null ? tr.detectedType : selectedType;
+
+        if (NO_HAZARD.equals(detected)) {
+            // The model sees no hazard: do not silently file a hazard report
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("No clear hazard detected")
+                    .setMessage("The photo does not appear to show a hazard. Retake the photo, or save the report "
+                            + "anyway as \"" + selectedType + "\" with Low severity?")
+                    .setPositiveButton("Save anyway", (d, w) ->
+                            saveReport(title, desc, locationStr, selectedType, lat, lon, tr, "Low",
+                                    "user choice, AI saw no hazard"))
+                    .setNegativeButton("Retake photo", null)
+                    .show();
+        } else if (!detected.equals(selectedType)) {
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("Hazard type differs")
+                    .setMessage("You selected \"" + selectedType + "\" but the photo scan suggests \""
+                            + detected + "\". Which should be saved? (Nearby reports of the same type are merged.)")
+                    .setPositiveButton("Use suggestion", (d, w) ->
+                            saveReport(title, desc, locationStr, detected, lat, lon, tr, tr.severity,
+                                    "AI suggestion; user chose " + selectedType))
+                    .setNegativeButton("Keep mine", (d, w) ->
+                            saveReport(title, desc, locationStr, selectedType, lat, lon, tr, tr.severity,
+                                    "user choice; AI suggested " + detected))
+                    .setNeutralButton("Cancel", null)
+                    .show();
+        } else {
+            saveReport(title, desc, locationStr, selectedType, lat, lon, tr, tr.severity, "user and AI agree");
+        }
+    }
+
+    private void saveReport(String title, String desc, String locationStr, String hazardType,
+                            double lat, double lon, CampusRepository.TriageResult tr,
+                            String severity, String typeSource) {
         String id = "CF-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
-        // Include the date: "Today, HH:mm" became wrong as soon as the app was reopened the next day
         String timeStr = new SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(new Date());
         String myEmail = CampusRepository.getInstance()
                 .getProfileField("siswa_email", "demo.student@siswa.um.edu.my");
         String timeline = timeStr + " • Submitted"
-                + (capturedBitmap != null ? " (With Photo Estimate)" : " (Text Report)");
+                + (capturedBitmap != null ? " (With Photo Estimate)" : " (Text Report)")
+                + "\n" + timeStr + " • Category: " + hazardType + " (" + typeSource + ")";
 
         String photoUri = "";
         if (capturedBitmap != null) {
@@ -532,12 +576,11 @@ public class ReportFragment extends Fragment {
 
         HazardReport newReport = new HazardReport(
                 id, title, desc, locationStr, hazardType,
-                latestTriage.severity, "Submitted",
+                severity, "Submitted",
                 lat, lon, timeStr,
-                1, 0, latestTriage.confidence, latestTriage.note,
+                1, 0, tr.confidence, tr.note,
                 myEmail, timeline, photoUri
         );
-
         viewModel.submitNewReport(newReport);
 
         etTitle.setText("");

@@ -137,6 +137,28 @@
                 android:contentDescription="Route destination shelter" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Mode: "
+                android:textColor="#1E3A8A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/spinner_mobility_mode"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:contentDescription="Transportation and mobility mode" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/tv_route_status"
             android:layout_width="match_parent"
